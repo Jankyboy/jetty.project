@@ -186,9 +186,9 @@ public abstract class BaseHolder<T> extends AbstractLifeCycle implements Dumpabl
         return _instance != null;
     }
 
-    protected <C, W> C wrap(final C component, final Class<W> wrapperFunctionType, final BiFunction<W, C, C> function)
+    protected <W> T wrap(final T component, final Class<W> wrapperFunctionType, final BiFunction<W, T, T> function)
     {
-        C ret = component;
+        T ret = component;
         ServletContextHandler contextHandler = getServletHandler().getServletContextHandler();
         if (contextHandler != null)
         {
@@ -200,14 +200,14 @@ public abstract class BaseHolder<T> extends AbstractLifeCycle implements Dumpabl
         return ret;
     }
 
-    protected <C> C unwrap(final C component)
+    protected T unwrap(final T component)
     {
-        C ret = component;
+        T ret = component;
 
         while (ret instanceof Wrapped)
         {
             // noinspection unchecked,rawtypes
-            ret = (C)((Wrapped)ret).getWrapped();
+            ret = (T)((Wrapped)ret).getWrapped();
         }
         return ret;
     }
