@@ -190,6 +190,12 @@ public abstract class BaseHolder<T> extends AbstractLifeCycle implements Dumpabl
     {
         T ret = component;
         ServletContextHandler contextHandler = getServletHandler().getServletContextHandler();
+        if (contextHandler == null)
+        {
+            ContextHandler.Context context = ContextHandler.getCurrentContext();
+            contextHandler = (ServletContextHandler)(context == null ? null : context.getContextHandler());
+        }
+
         if (contextHandler != null)
         {
             for (W wrapperFunction : contextHandler.getBeans(wrapperFunctionType))

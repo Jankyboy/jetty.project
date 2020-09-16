@@ -445,7 +445,7 @@ public class ServletHolder extends Holder<Servlet> implements UserIdentity.Scope
         if (o == null)
             return;
 
-        Servlet servlet = ((Servlet)o);
+        Servlet servlet = (Servlet)o;
 
         // need to use the unwrapped servlet because lifecycle callbacks such as
         // postconstruct and predestroy are based off the classname and the wrapper

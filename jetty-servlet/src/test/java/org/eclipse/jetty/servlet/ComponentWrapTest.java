@@ -103,8 +103,6 @@ public class ComponentWrapTest
             @Override
             public void init(FilterConfig filterConfig)
             {
-                // TODO: this shouldn't be required (see FIXME below)
-                filterConfig.getServletContext().addListener(LoggingRequestListener.class);
             }
 
             @Override
@@ -120,19 +118,8 @@ public class ComponentWrapTest
         });
         contextHandler.addFilter(filterHolder, "/*", EnumSet.of(DispatcherType.REQUEST));
 
-        /* FIXME
-        These 2 options for event listeners don't work in embedded mode.
-
-        1) contextHandler.addEventListener(new LoggingRequestListener());
-           - this does not result in a ListenerHolder.
-
-        2) ListenerHolder listenerHolder = new ListenerHolder(LoggingRequestListener.class);
-           contextHandler.getServletHandler().addListener(listenerHolder);
-           - this results in a ServletHandler without a reference to
-             the ServletContextHandler
-
-        Only adding Listener during context initialization works (see Filter.init above)
-         */
+        ListenerHolder listenerHolder = new ListenerHolder(LoggingRequestListener.class);
+        contextHandler.getServletHandler().addListener(listenerHolder);
 
         contextHandler.addBean(wrapHandler);
         server.setHandler(contextHandler);

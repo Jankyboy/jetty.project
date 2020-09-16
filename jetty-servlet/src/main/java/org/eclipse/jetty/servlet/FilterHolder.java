@@ -132,7 +132,7 @@ public class FilterHolder extends Holder<Filter>
                     throw ex;
                 }
             }
-            _filter = wrap(_filter, WrapFunction.class, WrapFunction::wrapFilter);
+            _filter = wrap(_filter, FilterHolder.WrapFunction.class, FilterHolder.WrapFunction::wrapFilter);
             _config = new Config();
             if (LOG.isDebugEnabled())
                 LOG.debug("Filter.init {}", _filter);
