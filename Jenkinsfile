@@ -133,8 +133,8 @@ def mavenBuild(jdk, cmdline, mvnName, consoleParsers) {
     }
     finally
     {
-      junit testResults: '**/target/surefire-reports/*.xml,**/target/invoker-reports/TEST*.xml,**/h2spec-reports/*.xml'
       archiveArtifacts artifacts: '**/jetty-maven-plugin/target/it/**',allowEmptyArchive: true
+      junit testResults: '**/target/surefire-reports/*.xml,**/target/invoker-reports/TEST*.xml,**/h2spec-reports/*.xml'
       if(consoleParsers!=null){
         warnings consoleParsers: consoleParsers
       }
