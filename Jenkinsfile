@@ -122,7 +122,7 @@ def mavenBuild(jdk, cmdline, mvnName, consoleParsers) {
   script {
     try {
       withEnv(["JAVA_HOME=${ tool "$jdk" }",
-               "PATH+MAVEN=${env.JAVA_HOME}/bin:${tool "$mvnName"}/bin",
+               "PATH+MAVEN=${ tool "$jdk" }/bin:${tool "$mvnName"}/bin",
                "MAVEN_OPTS=-Xms2g -Xmx4g -Djava.awt.headless=true"]) {
         configFileProvider(
                 [configFile(fileId: 'oss-settings.xml', variable: 'GLOBAL_MVN_SETTINGS')]) {
