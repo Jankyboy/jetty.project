@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -189,7 +184,7 @@ public class FileSystemResourceTest
                 final URI alias = ritem.getAlias();
                 if (alias == null)
                 {
-                    return false;
+                    return resource.getAlias() == null;
                 }
                 else
                 {
@@ -224,7 +219,7 @@ public class FileSystemResourceTest
     public void testNotFileURI(Class<PathResource> resourceClass)
     {
         assertThrows(IllegalArgumentException.class,
-            () -> newResource(resourceClass, new URI("http://www.eclipse.org/jetty/")));
+            () -> newResource(resourceClass, new URI("https://www.eclipse.org/jetty/")));
     }
 
     @ParameterizedTest
@@ -347,9 +342,12 @@ public class FileSystemResourceTest
             assertThat("Ref A2 exists", refA2.exists(), is(true));
             assertThat("Ref O1 exists", refO1.exists(), is(true));
 
-            assertThat("Ref A1 alias", refA1.isAlias(), is(false));
-            assertThat("Ref A2 alias", refA2.isAlias(), is(false));
-            assertThat("Ref O1 alias", refO1.isAlias(), is(false));
+            if (LINUX.isCurrentOs())
+            {
+                assertThat("Ref A1 alias", refA1.isAlias(), is(false));
+                assertThat("Ref A2 alias", refA2.isAlias(), is(false));
+                assertThat("Ref O1 alias", refO1.isAlias(), is(false));
+            }
 
             assertThat("Ref A1 contents", toString(refA1), is("hi a-with-circle"));
             assertThat("Ref A2 contents", toString(refA2), is("hi a-with-two-dots"));

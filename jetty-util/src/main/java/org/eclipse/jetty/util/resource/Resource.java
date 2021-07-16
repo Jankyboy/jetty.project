@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -308,6 +303,18 @@ public abstract class Resource implements ResourceFactory, Closeable
     public abstract boolean isContainedIn(Resource r) throws MalformedURLException;
 
     /**
+     * Return true if the passed Resource represents the same resource as the Resource.
+     * For many resource types, this is equivalent to {@link #equals(Object)}, however
+     * for resources types that support aliasing, this maybe some other check (e.g. {@link java.nio.file.Files#isSameFile(Path, Path)}).
+     * @param resource The resource to check
+     * @return true if the passed resource represents the same resource.
+     */
+    public boolean isSame(Resource resource)
+    {
+        return equals(resource);
+    }
+
+    /**
      * Release any temporary resources held by the resource.
      */
     @Override
@@ -320,8 +327,6 @@ public abstract class Resource implements ResourceFactory, Closeable
 
     /**
      * @return true if the represented resource is a container/directory.
-     * if the resource is not a file, resources ending with "/" are
-     * considered directories.
      */
     public abstract boolean isDirectory();
 
@@ -412,12 +417,14 @@ public abstract class Resource implements ResourceFactory, Closeable
 
     /**
      * Returns the resource contained inside the current resource with the
-     * given name.
+     * given name, which may or may not exist.
      *
-     * @param path The path segment to add, which is not encoded
+     * @param path The path segment to add, which is not encoded.  The path may be non canonical, but if so then
+     * the resulting Resource will return true from {@link #isAlias()}.
      * @return the Resource for the resolved path within this Resource, never null
      * @throws IOException if unable to resolve the path
-     * @throws MalformedURLException if the resolution of the path fails because the input path parameter is malformed.
+     * @throws MalformedURLException if the resolution of the path fails because the input path parameter is malformed, or
+     * a relative path attempts to access above the root resource.
      */
     public abstract Resource addPath(String path)
         throws IOException, MalformedURLException;
@@ -472,6 +479,7 @@ public abstract class Resource implements ResourceFactory, Closeable
      */
     public String getListHTML(String base, boolean parent, String query) throws IOException
     {
+        // This method doesn't check aliases, so it is OK to canonicalize here.
         base = URIUtil.canonicalPath(base);
         if (base == null || !isDirectory())
             return null;

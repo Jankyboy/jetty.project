@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,6 +26,7 @@ import java.util.Queue;
 import java.util.Set;
 
 import org.eclipse.jetty.http2.frames.Frame;
+import org.eclipse.jetty.http2.frames.FrameType;
 import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
 import org.eclipse.jetty.http2.hpack.HpackException;
 import org.eclipse.jetty.io.ByteBufferPool;
@@ -118,7 +114,7 @@ public class HTTP2Flusher extends IteratingCallback implements Dumpable
     public boolean append(List<Entry> list)
     {
         Throwable closed;
-        synchronized (this)
+        try (AutoLock l = lock.lock())
         {
             closed = terminated;
             if (closed == null)
@@ -197,11 +193,11 @@ public class HTTP2Flusher extends IteratingCallback implements Dumpable
 
                 // If the stream has been reset or removed,
                 // don't send the frame and fail it here.
-                if (entry.isStale())
+                if (entry.shouldBeDropped())
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Stale {}", entry);
-                    entry.failed(new EofException("reset"));
+                        LOG.debug("Dropped {}", entry);
+                    entry.failed(new EofException("dropped"));
                     pending.remove();
                     continue;
                 }
@@ -367,7 +363,7 @@ public class HTTP2Flusher extends IteratingCallback implements Dumpable
         // If the failure came from within the
         // flusher, we need to close the connection.
         if (closed == null)
-            session.abort(x);
+            session.onWriteFailure(x);
     }
 
     void terminate(Throwable cause)
@@ -378,7 +374,7 @@ public class HTTP2Flusher extends IteratingCallback implements Dumpable
             closed = terminated;
             terminated = cause;
             if (LOG.isDebugEnabled())
-                LOG.debug("{}", closed != null ? "Terminated" : "Terminating");
+                LOG.debug("{} {}", closed != null ? "Terminated" : "Terminating", this);
         }
         if (closed == null)
             iterate();
@@ -452,40 +448,47 @@ public class HTTP2Flusher extends IteratingCallback implements Dumpable
         }
 
         /**
-         * @return whether the entry is stale and must not be processed
+         * @return whether the entry should not be processed
          */
-        private boolean isStale()
-        {
-            // If it is a protocol frame, process it.
-            if (isProtocolFrame(frame))
-                return false;
-            // It's an application frame; is the stream gone already?
-            if (stream == null)
-                return true;
-            return stream.isResetOrFailed();
-        }
-
-        private boolean isProtocolFrame(Frame frame)
+        private boolean shouldBeDropped()
         {
             switch (frame.getType())
             {
-                case DATA:
-                case HEADERS:
-                case PUSH_PROMISE:
-                case CONTINUATION:
-                    return false;
+                // Frames of this type should not be dropped.
                 case PRIORITY:
-                case RST_STREAM:
                 case SETTINGS:
                 case PING:
                 case GO_AWAY:
                 case WINDOW_UPDATE:
                 case PREFACE:
                 case DISCONNECT:
-                    return true;
+                    return false;
+                // Frames of this type follow the logic below.
+                case DATA:
+                case HEADERS:
+                case PUSH_PROMISE:
+                case CONTINUATION:
+                case RST_STREAM:
+                    break;
                 default:
                     throw new IllegalStateException();
             }
+
+            // SPEC: section 6.4.
+            if (frame.getType() == FrameType.RST_STREAM)
+                return stream != null && stream.isLocal() && !stream.isCommitted();
+
+            // Frames that do not have a stream associated are dropped.
+            if (stream == null)
+                return true;
+
+            return stream.isResetOrFailed();
+        }
+
+        void commit()
+        {
+            if (stream != null)
+                stream.commit();
         }
 
         @Override

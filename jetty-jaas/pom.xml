@@ -2,7 +2,7 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>10.0.0-SNAPSHOT</version>
+    <version>10.0.7-SNAPSHOT</version>
   </parent>
 
   <modelVersion>4.0.0</modelVersion>
@@ -14,6 +14,7 @@
     <bundle-symbolic-name>${project.groupId}.jaas</bundle-symbolic-name>
     <!-- 2.0.0.AM25 is breaking surefire -->
     <apacheds.version>2.0.0.AM26</apacheds.version>
+    <spotbugs.onlyAnalyze>org.eclipse.jetty.jaas.*</spotbugs.onlyAnalyze>
   </properties>
 
   <build>
@@ -25,10 +26,12 @@
         <artifactId>maven-source-plugin</artifactId>
       </plugin>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
-          <onlyAnalyze>org.eclipse.jetty.jaas.*</onlyAnalyze>
+          <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+          <failIfNoTests>false</failIfNoTests>
+          <testFailureIgnore>true</testFailureIgnore>
         </configuration>
       </plugin>
     </plugins>
@@ -57,10 +60,14 @@
     </dependency>
     <dependency>
       <groupId>org.apache.directory.server</groupId>
-      <artifactId>apacheds-all</artifactId>
+      <artifactId>apacheds-test-framework</artifactId>
       <version>${apacheds.version}</version>
       <scope>test</scope>
       <exclusions>
+        <exclusion>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+        </exclusion>
         <!-- exclude additional LDIF schema files to avoid conflicts through
           multiple copies -->
         <exclusion>
@@ -109,6 +116,12 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <dependency>
+      <groupId>org.apache.directory.api</groupId>
+      <artifactId>api-ldap-schema-data</artifactId>
+      <version>2.0.0</version>
+      <scope>test</scope>      
+    </dependency>
     <!-- because directory server do not have yet junit5 extensions -->
     <dependency>
       <groupId>org.junit.vintage</groupId>
@@ -118,4 +131,27 @@
     </dependency>
 
   </dependencies>
+
+  <profiles>
+    <profile>
+      <id>jdk16</id>
+      <activation>
+        <jdk>[16,)</jdk>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <configuration>
+                <argLine>--add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens java.base/sun.security.util=ALL-UNNAMED</argLine>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
+
 </project>

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -26,11 +21,15 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import javax.net.ssl.ExtendedSSLSession;
+import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIMatcher;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLSession;
@@ -47,7 +46,6 @@ import org.slf4j.LoggerFactory;
  */
 public class SniX509ExtendedKeyManager extends X509ExtendedKeyManager
 {
-    public static final String SNI_X509 = "org.eclipse.jetty.util.ssl.snix509";
     private static final Logger LOG = LoggerFactory.getLogger(SniX509ExtendedKeyManager.class);
 
     private final X509ExtendedKeyManager _delegate;
@@ -116,14 +114,33 @@ public class SniX509ExtendedKeyManager extends X509ExtendedKeyManager
         Arrays.stream(mangledAliases)
             .forEach(alias -> aliasMap.put(getAliasMapper().apply(alias), alias));
 
-        // Find our SNIMatcher.  There should only be one and it always matches (always returns true
-        // from AliasSNIMatcher.matches), but it will capture the SNI Host if one was presented.
-        String host = matchers == null ? null :  matchers.stream()
-            .filter(SslContextFactory.AliasSNIMatcher.class::isInstance)
-            .map(SslContextFactory.AliasSNIMatcher.class::cast)
-            .findFirst()
-            .map(SslContextFactory.AliasSNIMatcher::getHost)
-            .orElse(null);
+        String host = null;
+        if (session instanceof ExtendedSSLSession)
+        {
+            List<SNIServerName> serverNames = ((ExtendedSSLSession)session).getRequestedServerNames();
+            if (serverNames != null)
+            {
+                host = serverNames.stream()
+                    .findAny()
+                    .filter(SNIHostName.class::isInstance)
+                    .map(SNIHostName.class::cast)
+                    .map(SNIHostName::getAsciiName)
+                    .orElse(null);
+            }
+        }
+        if (host == null)
+        {
+            // Find our SNIMatcher.  There should only be one and it always matches (always returns true
+            // from AliasSNIMatcher.matches), but it will capture the SNI Host if one was presented.
+            host = matchers == null ? null : matchers.stream()
+                .filter(SslContextFactory.AliasSNIMatcher.class::isInstance)
+                .map(SslContextFactory.AliasSNIMatcher.class::cast)
+                .findFirst()
+                .map(SslContextFactory.AliasSNIMatcher::getHost)
+                .orElse(null);
+        }
+        if (session != null && host != null)
+            session.putValue(SslContextFactory.Server.SNI_HOST, host);
 
         try
         {
@@ -152,9 +169,6 @@ public class SniX509ExtendedKeyManager extends X509ExtendedKeyManager
                 return null;
             }
 
-            if (session != null)
-                session.putValue(SNI_X509, x509);
-
             // Convert the selected alias back to the original
             // value before the alias mapping performed above.
             String mangledAlias = aliasMap.get(alias);
@@ -182,7 +196,7 @@ public class SniX509ExtendedKeyManager extends X509ExtendedKeyManager
         if (delegate)
             alias = _delegate.chooseServerAlias(keyType, issuers, socket);
         if (LOG.isDebugEnabled())
-            LOG.debug("Chose {} alias {}/{} on {}", delegate ? "delegate" : "explicit", alias, keyType, socket);
+            LOG.debug("Chose {} alias={} keyType={} on {}", delegate ? "delegate" : "explicit", String.valueOf(alias), keyType, socket);
         return alias;
     }
 
@@ -196,7 +210,7 @@ public class SniX509ExtendedKeyManager extends X509ExtendedKeyManager
         if (delegate)
             alias = _delegate.chooseEngineServerAlias(keyType, issuers, engine);
         if (LOG.isDebugEnabled())
-            LOG.debug("Chose {} alias {}/{} on {}", delegate ? "delegate" : "explicit", alias, keyType, engine);
+            LOG.debug("Chose {} alias={} keyType={} on {}", delegate ? "delegate" : "explicit", String.valueOf(alias), keyType, engine);
         return alias;
     }
 
@@ -236,7 +250,7 @@ public class SniX509ExtendedKeyManager extends X509ExtendedKeyManager
          * <p>Selects a certificate based on SNI information.</p>
          * <p>This method may be invoked multiple times during the TLS handshake, with different parameters.
          * For example, the {@code keyType} could be different, and subsequently the collection of certificates
-         * (because they need to match the {@code keyType}.</p>
+         * (because they need to match the {@code keyType}).</p>
          *
          * @param keyType the key algorithm type name
          * @param issuers the list of acceptable CA issuer subject names or null if it does not matter which issuers are used

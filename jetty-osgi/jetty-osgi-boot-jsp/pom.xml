@@ -2,20 +2,21 @@
   <parent>
     <groupId>org.eclipse.jetty.osgi</groupId>
     <artifactId>jetty-osgi-project</artifactId>
-    <version>10.0.0-SNAPSHOT</version>
+    <version>10.0.7-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-osgi-boot-jsp</artifactId>
   <name>Jetty :: OSGi :: Boot JSP</name>
   <description>Jetty OSGi Boot JSP bundle</description>
-  <url>http://www.eclipse.org/jetty</url>
   <properties>
     <bundle-symbolic-name>${project.groupId}.boot.jsp</bundle-symbolic-name>
+    <spotbugs.onlyAnalyze>org.eclipse.jetty.osgi.boot.jasper.*,org.eclipse.jetty.osgi.boot.jsp.*</spotbugs.onlyAnalyze>
   </properties>
   <dependencies>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-deploy</artifactId>
+      <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.osgi</groupId>
@@ -24,11 +25,11 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.eclipse.osgi</groupId>
+      <groupId>org.eclipse.platform</groupId>
       <artifactId>org.eclipse.osgi</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.eclipse.osgi</groupId>
+      <groupId>org.eclipse.platform</groupId>
       <artifactId>org.eclipse.osgi.services</artifactId>
     </dependency>
     <!-- Servlet Deps -->
@@ -56,7 +57,9 @@
             <Bundle-Classpath />
             <Fragment-Host>org.eclipse.jetty.osgi.boot</Fragment-Host>
             <Export-Package>!org.eclipse.jetty.osgi.boot.*</Export-Package>
-            <Import-Package>org.eclipse.jdt.*;resolution:=optional,
+            <Import-Package>
+                ${osgi.slf4j.import.packages},
+                org.eclipse.jdt.*;resolution:=optional,
                 org.eclipse.jdt.core.compiler.*;resolution:=optional,
                 com.sun.el;resolution:=optional,
                 com.sun.el.lang;resolution:=optional,
@@ -124,13 +127,6 @@
                 org.apache.jasper.*;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))",
                 org.apache.el.*;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))"</DynamicImport-Package>
           </instructions>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <configuration>
-          <onlyAnalyze>org.eclipse.jetty.osgi.boot.jasper.*,org.eclipse.jetty.osgi.boot.jsp.*</onlyAnalyze>
         </configuration>
       </plugin>
     </plugins>

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,12 +17,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.AsynchronousCloseException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.client.api.Destination;
@@ -36,7 +30,7 @@ import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.ClientConnectionFactory;
-import org.eclipse.jetty.io.CyclicTimeout;
+import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.HostPort;
@@ -65,7 +59,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     private final ProxyConfiguration.Proxy proxy;
     private final ClientConnectionFactory connectionFactory;
     private final HttpField hostField;
-    private final TimeoutTask timeout;
+    private final RequestTimeouts requestTimeouts;
     private ConnectionPool connectionPool;
 
     public HttpDestination(HttpClient client, Origin origin)
@@ -78,7 +72,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         this.requestNotifier = new RequestNotifier(client);
         this.responseNotifier = new ResponseNotifier();
 
-        this.timeout = new TimeoutTask(client.getScheduler());
+        this.requestTimeouts = new RequestTimeouts(client.getScheduler());
 
         String host = HostPort.normalizeHost(getHost());
         if (!client.isDefaultPort(getScheme(), getPort()))
@@ -114,7 +108,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     protected void doStart() throws Exception
     {
         this.connectionPool = newConnectionPool(client);
-        addBean(connectionPool);
+        addBean(connectionPool, true);
         super.doStart();
         Sweeper sweeper = client.getBean(Sweeper.class);
         if (sweeper != null && connectionPool instanceof Sweeper.Sweepable)
@@ -243,15 +237,13 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         abort(x);
     }
 
+    public void send(Request request, Response.CompleteListener listener)
+    {
+        ((HttpRequest)request).sendAsync(this, listener);
+    }
+
     protected void send(HttpRequest request, List<Response.ResponseListener> listeners)
     {
-        if (!getScheme().equalsIgnoreCase(request.getScheme()))
-            throw new IllegalArgumentException("Invalid request scheme " + request.getScheme() + " for destination " + this);
-        if (!getHost().equalsIgnoreCase(request.getHost()))
-            throw new IllegalArgumentException("Invalid request host " + request.getHost() + " for destination " + this);
-        int port = request.getPort();
-        if (port >= 0 && getPort() != port)
-            throw new IllegalArgumentException("Invalid request port " + port + " for destination " + this);
         send(new HttpExchange(this, request, listeners));
     }
 
@@ -262,10 +254,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         {
             if (enqueue(exchanges, exchange))
             {
-                long expiresAt = request.getTimeoutAt();
-                if (expiresAt != -1)
-                    timeout.schedule(expiresAt);
-
+                requestTimeouts.schedule(exchange);
                 if (!client.isRunning() && exchanges.remove(exchange))
                 {
                     request.abort(new RejectedExecutionException(client + " is stopping"));
@@ -303,9 +292,8 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
 
     private void send(boolean create)
     {
-        if (getHttpExchanges().isEmpty())
-            return;
-        process(create);
+        if (!getHttpExchanges().isEmpty())
+            process(create);
     }
 
     private void process(boolean create)
@@ -313,20 +301,24 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         // The loop is necessary in case of a new multiplexed connection,
         // when a single thread notified of the connection opening must
         // process all queued exchanges.
-        // In other cases looping is a work-stealing optimization.
+        // It is also necessary when thread T1 cannot acquire a connection
+        // (for example, it has been stolen by thread T2 and the pool has
+        // enough pending reservations). T1 returns without doing anything
+        // and therefore it is T2 that must send both queued requests.
         while (true)
         {
             Connection connection = connectionPool.acquire(create);
             if (connection == null)
                 break;
-            ProcessResult result = process(connection);
-            if (result == ProcessResult.FINISH)
+            boolean proceed = process(connection);
+            if (proceed)
+                create = false;
+            else
                 break;
-            create = result == ProcessResult.RESTART;
         }
     }
 
-    private ProcessResult process(Connection connection)
+    private boolean process(Connection connection)
     {
         HttpClient client = getHttpClient();
         HttpExchange exchange = getHttpExchanges().poll();
@@ -342,7 +334,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
                     LOG.debug("{} is stopping", client);
                 connection.close();
             }
-            return ProcessResult.FINISH;
+            return false;
         }
         else
         {
@@ -360,9 +352,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
                 // is created. Aborting the exchange a second time will result in
                 // a no-operation, so we just abort here to cover that edge case.
                 exchange.abort(cause);
-                return getHttpExchanges().size() > 0
-                    ?  (released ? ProcessResult.CONTINUE : ProcessResult.RESTART)
-                    : ProcessResult.FINISH;
+                return getQueuedRequestCount() > 0;
             }
 
             SendFailure failure = send((IConnection)connection, exchange);
@@ -370,7 +360,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
             {
                 // Aggressively send other queued requests
                 // in case connections are multiplexed.
-                return getQueuedRequestCount() > 0 ? ProcessResult.CONTINUE : ProcessResult.FINISH;
+                return getQueuedRequestCount() > 0;
             }
 
             if (LOG.isDebugEnabled())
@@ -380,10 +370,10 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
                 // Resend this exchange, likely on another connection,
                 // and return false to avoid to re-enter this method.
                 send(exchange);
-                return ProcessResult.FINISH;
+                return false;
             }
             request.abort(failure.failure);
-            return getHttpExchanges().size() > 0 ? ProcessResult.RESTART : ProcessResult.FINISH;
+            return getQueuedRequestCount() > 0;
         }
     }
 
@@ -415,7 +405,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         if (LOG.isDebugEnabled())
             LOG.debug("Closed {}", this);
         connectionPool.close();
-        timeout.destroy();
+        requestTimeouts.destroy();
     }
 
     public void release(Connection connection)
@@ -465,7 +455,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
             // Process queued requests that may be waiting.
             // We may create a connection that is not
             // needed, but it will eventually idle timeout.
-            process(true);
+            send(true);
         }
         return removed;
     }
@@ -522,8 +512,8 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
             getOrigin(),
             hashCode(),
             proxy == null ? "" : "(via " + proxy + ")",
-            exchanges.size(),
-            connectionPool);
+            getQueuedRequestCount(),
+            getConnectionPool());
     }
 
     @FunctionalInterface
@@ -533,73 +523,29 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     }
 
     /**
-     * This class enforces the total timeout for exchanges that are still in the queue.
-     * The total timeout for exchanges that are not in the destination queue is enforced
-     * by {@link HttpChannel}.
+     * <p>Enforces the total timeout for for exchanges that are still in the queue.</p>
+     * <p>The total timeout for exchanges that are not in the destination queue
+     * is enforced in {@link HttpConnection}.</p>
      */
-    private class TimeoutTask extends CyclicTimeout
+    private class RequestTimeouts extends CyclicTimeouts<HttpExchange>
     {
-        private final AtomicLong nextTimeout = new AtomicLong(Long.MAX_VALUE);
-
-        private TimeoutTask(Scheduler scheduler)
+        private RequestTimeouts(Scheduler scheduler)
         {
             super(scheduler);
         }
 
         @Override
-        public void onTimeoutExpired()
+        protected Iterator<HttpExchange> iterator()
         {
-            if (LOG.isDebugEnabled())
-                LOG.debug("{} timeout expired", this);
-
-            nextTimeout.set(Long.MAX_VALUE);
-            long now = System.nanoTime();
-            long nextExpiresAt = Long.MAX_VALUE;
-
-            // Check all queued exchanges for those that have expired
-            // and to determine when the next check must be.
-            for (HttpExchange exchange : exchanges)
-            {
-                HttpRequest request = exchange.getRequest();
-                long expiresAt = request.getTimeoutAt();
-                if (expiresAt == -1)
-                    continue;
-                if (expiresAt <= now)
-                    request.abort(new TimeoutException("Total timeout " + request.getTimeout() + " ms elapsed"));
-                else if (expiresAt < nextExpiresAt)
-                    nextExpiresAt = expiresAt;
-            }
-
-            if (nextExpiresAt < Long.MAX_VALUE && client.isRunning())
-                schedule(nextExpiresAt);
+            return exchanges.iterator();
         }
 
-        private void schedule(long expiresAt)
+        @Override
+        protected boolean onExpired(HttpExchange exchange)
         {
-            // Schedule a timeout for the soonest any known exchange can expire.
-            // If subsequently that exchange is removed from the queue, the
-            // timeout is not cancelled, instead the entire queue is swept
-            // for expired exchanges and a new timeout is set.
-            long timeoutAt = nextTimeout.getAndUpdate(e -> Math.min(e, expiresAt));
-            if (timeoutAt != expiresAt)
-            {
-                long delay = expiresAt - System.nanoTime();
-                if (delay <= 0)
-                {
-                    onTimeoutExpired();
-                }
-                else
-                {
-                    schedule(delay, TimeUnit.NANOSECONDS);
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("{} scheduled timeout in {} ms", this, TimeUnit.NANOSECONDS.toMillis(delay));
-                }
-            }
+            HttpRequest request = exchange.getRequest();
+            request.abort(new TimeoutException("Total timeout " + request.getConversation().getTimeout() + " ms elapsed"));
+            return false;
         }
-    }
-
-    private enum ProcessResult
-    {
-        RESTART, CONTINUE, FINISH
     }
 }

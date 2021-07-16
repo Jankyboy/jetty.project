@@ -1,7 +1,7 @@
 # DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
 
 [description]
-Log requests using CustomRequestLog and AsyncRequestLogWriter.
+Logs requests using CustomRequestLog and AsyncRequestLogWriter.
 
 [tags]
 requestlog
@@ -15,6 +15,9 @@ etc/jetty-requestlog.xml
 
 [files]
 logs/
+
+[ini]
+jetty.requestlog.dir?=logs
 
 [ini-template]
 ## Format string

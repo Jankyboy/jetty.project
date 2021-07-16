@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -33,6 +28,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.nullValue;
@@ -138,8 +135,8 @@ public class ContextHandlerGetResourceTest
     public void testBadPath() throws Exception
     {
         final String path = "bad";
-        assertThrows(MalformedURLException.class,() -> context.getResource(path));
-        assertThrows(MalformedURLException.class,() -> context.getServletContext().getResource(path));
+        assertThrows(MalformedURLException.class, () -> context.getResource(path));
+        assertThrows(MalformedURLException.class, () -> context.getServletContext().getResource(path));
     }
 
     @Test
@@ -223,24 +220,39 @@ public class ContextHandlerGetResourceTest
     }
 
     @Test
-    public void testNormalize() throws Exception
+    public void testDoesNotExistResource() throws Exception
     {
-        final String path = "/down/.././index.html";
-        Resource resource = context.getResource(path);
-        assertEquals("index.html", resource.getFile().getName());
-        assertEquals(docroot, resource.getFile().getParentFile());
-        assertTrue(resource.exists());
-
-        URL url = context.getServletContext().getResource(path);
-        assertEquals(docroot, new File(url.toURI()).getParentFile());
+        Resource resource = context.getResource("/doesNotExist.html");
+        assertNotNull(resource);
+        assertFalse(resource.exists());
     }
 
     @Test
-    public void testTooNormal() throws Exception
+    public void testAlias() throws Exception
     {
-        final String path = "/down/.././../";
+        String path = "/./index.html";
         Resource resource = context.getResource(path);
         assertNull(resource);
+        URL resourceURL = context.getServletContext().getResource(path);
+        assertFalse(resourceURL.getPath().contains("/./"));
+
+        path = "/down/../index.html";
+        resource = context.getResource(path);
+        assertNull(resource);
+        resourceURL = context.getServletContext().getResource(path);
+        assertFalse(resourceURL.getPath().contains("/../"));
+
+        path = "//index.html";
+        resource = context.getResource(path);
+        assertNull(resource);
+        resourceURL = context.getServletContext().getResource(path);
+        assertNull(resourceURL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/down/.././../", "/../down/"})
+    public void testNormalize(String path) throws Exception
+    {
         URL url = context.getServletContext().getResource(path);
         assertNull(url);
     }

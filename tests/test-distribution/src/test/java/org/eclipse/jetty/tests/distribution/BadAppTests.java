@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -40,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests where the server is started with a Bad App that will fail in its init phase.
  */
-public class BadAppTests extends AbstractDistributionTest
+public class BadAppTests extends AbstractJettyHomeTest
 {
     /**
      * Start a server where a bad webapp is being deployed.
@@ -53,12 +48,12 @@ public class BadAppTests extends AbstractDistributionTest
     public void testXmlThrowOnUnavailableTrue() throws Exception
     {
         String jettyVersion = System.getProperty("jettyVersion");
-        DistributionTester distribution = DistributionTester.Builder.newInstance()
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
             .jettyVersion(jettyVersion)
             .mavenLocalRepository(System.getProperty("mavenRepoPath"))
             .build();
 
-        try (DistributionTester.Run run1 = distribution.start("--add-to-start=http,deploy"))
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=http,deploy"))
         {
             assertTrue(run1.awaitFor(5, TimeUnit.SECONDS));
             assertThat(run1.getExitValue(), is(0));
@@ -70,7 +65,7 @@ public class BadAppTests extends AbstractDistributionTest
                 "webapps/badapp.xml");
 
             int port = distribution.freePort();
-            try (DistributionTester.Run run2 = distribution.start("jetty.http.port=" + port))
+            try (JettyHomeTester.Run run2 = distribution.start("jetty.http.port=" + port))
             {
                 assertTrue(run2.awaitFor(5, TimeUnit.SECONDS), "Should have exited");
                 assertThat("Should have gotten a non-zero exit code", run2.getExitValue(), not(is(0)));
@@ -90,12 +85,12 @@ public class BadAppTests extends AbstractDistributionTest
     public void testXmlThrowOnUnavailableFalse() throws Exception
     {
         String jettyVersion = System.getProperty("jettyVersion");
-        DistributionTester distribution = DistributionTester.Builder.newInstance()
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
             .jettyVersion(jettyVersion)
             .mavenLocalRepository(System.getProperty("mavenRepoPath"))
             .build();
 
-        try (DistributionTester.Run run1 = distribution.start("--add-to-start=http,deploy"))
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=http,deploy"))
         {
             assertTrue(run1.awaitFor(5, TimeUnit.SECONDS));
             assertThat(run1.getExitValue(), is(0));
@@ -107,7 +102,7 @@ public class BadAppTests extends AbstractDistributionTest
                 "webapps/badapp.xml");
 
             int port = distribution.freePort();
-            try (DistributionTester.Run run2 = distribution.start("jetty.http.port=" + port))
+            try (JettyHomeTester.Run run2 = distribution.start("jetty.http.port=" + port))
             {
                 assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
 
@@ -132,12 +127,12 @@ public class BadAppTests extends AbstractDistributionTest
     public void testNoXmlThrowOnUnavailableDefault() throws Exception
     {
         String jettyVersion = System.getProperty("jettyVersion");
-        DistributionTester distribution = DistributionTester.Builder.newInstance()
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
             .jettyVersion(jettyVersion)
             .mavenLocalRepository(System.getProperty("mavenRepoPath"))
             .build();
 
-        try (DistributionTester.Run run1 = distribution.start("--add-to-start=http,deploy"))
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=http,deploy"))
         {
             assertTrue(run1.awaitFor(5, TimeUnit.SECONDS));
             assertThat(run1.getExitValue(), is(0));
@@ -147,7 +142,7 @@ public class BadAppTests extends AbstractDistributionTest
                 "webapps/badapp.war");
 
             int port = distribution.freePort();
-            try (DistributionTester.Run run2 = distribution.start("jetty.http.port=" + port))
+            try (JettyHomeTester.Run run2 = distribution.start("jetty.http.port=" + port))
             {
                 assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
 
@@ -168,17 +163,16 @@ public class BadAppTests extends AbstractDistributionTest
     public void testBadWebSocketWebapp(String arg) throws Exception
     {
         String jettyVersion = System.getProperty("jettyVersion");
-        DistributionTester distribution = DistributionTester.Builder.newInstance()
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
             .jettyVersion(jettyVersion)
             .mavenLocalRepository(System.getProperty("mavenRepoPath"))
             .build();
         String[] args1 = {
-            "--create-startd",
             "--approve-all-licenses",
-            "--add-to-start=resources,server,http,webapp,deploy,jsp,jmx,servlet,servlets,websocket"
+            "--add-modules=resources,server,http,webapp,deploy,jsp,jmx,servlet,servlets,websocket"
         };
 
-        try (DistributionTester.Run run1 = distribution.start(args1))
+        try (JettyHomeTester.Run run1 = distribution.start(args1))
         {
             assertTrue(run1.awaitFor(5, TimeUnit.SECONDS));
             assertEquals(0, run1.getExitValue());
@@ -189,7 +183,7 @@ public class BadAppTests extends AbstractDistributionTest
             int port = distribution.freePort();
             String[] args2 = {arg, "jetty.http.port=" + port};
 
-            try (DistributionTester.Run run2 = distribution.start(args2))
+            try (JettyHomeTester.Run run2 = distribution.start(args2))
             {
                 assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
                 assertFalse(run2.getLogs().stream().anyMatch(s -> s.contains("LinkageError")));

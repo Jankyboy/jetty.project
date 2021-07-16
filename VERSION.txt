@@ -1,4 +1,315 @@
-jetty-10.0.0-SNAPSHOT
+jetty-10.0.7-SNAPSHOT
+
+jetty-10.0.6 - 29 June 2021
+ + 6375 Always check XML `Set` elements with `property` attribute
+ + 6382 HttpClient TimeoutException message reports transient values
+ + 6394 Review osgi manifests within Jetty 10
+ + 6407 Malformed scheme logical expression check in WebSocket
+   ClientUpgradeRequest
+ + 6410 Ensure Jetty IO uses SocketAddress instead of InetSocketAddress
+ + 6418 Bad and/or missing Require-Capability for osgi.serviceloader
+ + 6425 Update to asm 9.1
+ + 6447 Deprecate support for UTF16 encoding in URIs
+ + 6451 Request#getServletPath() returns null for ROOT mapping
+ + 6464 Wrong files/lib definitions in certain *-capture.mod files?
+ + 6473 Improve alias checking in PathResource
+
+jetty-10.0.5 - 11 June 2021
+ + 4772 Jetty WebSocket API onMessage annotation does not support partial
+   messages.
+ + 6302 Treat empty path segments are ambiguous
+ + 6329 Regression on graceful shutdown default in Jetty 10
+ + 6354 org.slf4j dependency imports osgi packages at 2.0
+ + 6379 Reduce contention in all `ByteBufferPool` implementations
+ + 6392 Review accidental xml config changes
+
+jetty-10.0.4 - 04 June 2021
+ + 5379 Better handling for wrong SNI
+ + 5931 SslConnection should implement getBytesIn()/getBytesOut()
+ + 6112 Jetty logging service file leaking to web applications
+ + 6114 Jetty Deploy scan / symlink behavior is broken
+ + 6118 Display a warning when Hazelcast configuration does not contain Jetty
+   session serializer
+ + 6276 Support non-standard domains in SNI and X509
+ + 6305 Optimise `ContextHandler.isProtectedTarget`
+ + 6323 HttpClient gets stuck/never calls onComplete() when multiple requests
+   with timeouts are sent
+ + 6347 session-store-gcloud module broken logging dependency
+ + 6354 org.slfj osgi dependency imports packages at 2.0
+
+jetty-10.0.3 - 20 May 2021
+ + 3764 DeprecationWarning Decorator
+ + 5306 Default jetty.*.acceptors should be 1
+ + 5684 Review disabled tests
+ + 5798 jetty-runner startup error with jetty-10
+ + 5817 Provide more filtering for CustomRequestLog
+ + 6049 Default provider [files] section always executed
+ + 6084 GzipHandler: NPE in setDeflaterPoolCapacity and setInflaterPoolCapacity
+ + 6098 jetty-cdi is missing from jetty-bom
+ + 6099 Cipher preference may break SNI if certificates have different key
+   types
+ + 6105 HttpConnection.getBytesIn() incorrect for requests with chunked content
+ + 6106 WebSocket/CDI integration is broken in Jetty 10
+ + 6132 Ambiguous segment in URI in DELETE
+   /a/projects/foo/branches/refs%2Fheads%2Ftest request after upgrade from
+   10.0.0 to 10.0.2
+ + 6153 jetty-maven-plugin does not correctly pass JVM arguments for external
+   deployMode
+ + 6159 Jetty with Conscrypt unable to handle any HTTPS requests when connected
+   by IP rather than hostname.
+ + 6166 WebSocket MessageInputStream.read() spends a lot of time in
+   ByteBuffer.compact()
+ + 6205 OpenIdAuthenticator may use incorrect redirect
+ + 6207 Make ALPN optional in HTTP2Client over TLS
+ + 6208 HTTP/2 max local stream count exceeded
+ + 6224 make jetty-jspc-maven-plugin @threadSafe
+ + 6227 Better resolve race between `AsyncListener.onTimeout` and
+   `AsyncContext.dispatch`
+ + 6238 jetty-keystore Invalid manifest header Bundle-SymbolicName: ""
+ + 6250 Lazily allocate HTTP2Stream data queue
+ + 6251 Use CyclicTimeout for HTTP2Streams
+ + 6254 Total timeout not enforced for queued requests
+ + 6263 Review URI encoding in ConcatServlet & WelcomeFilter (Resolved
+   CVE-2021-28169)
+ + 6272 Reduce allocation in HttpClient when notifying content listeners
+ + 6277 Better handle exceptions thrown from session destroy listener (Resolved CVE-2021-34428)
+ + 6280 Copy ServletHolder class/instance properly during startWebapp
+ + 6287 Class loading broken for WebSocketClient used inside webapp
+
+jetty-10.0.2 - 26 March 2021
+ + 4275 Path Normalization/Traversal - Context Matching
+ + 5828 Allow to create a WebSocketContainer passing HttpClient
+ + 5832 Ctrl-C after jetty:run produces NoClassDefFoundError
+ + 5835 Review Durable Filters, Servlets and Listeners
+ + 5977 Cache-Control header set by a filter is override by the value from
+   DefaultServlet configuration
+ + 5994 QueuedThreadPool "free" threads
+ + 5996 ERROR : No module found to provide logback-impl for
+   logback-access{enabled}
+ + 5999 HttpURI ArrayIndexOutOfBounds
+ + 6001 Ambiguous URI legacy compliance mode
+ + 6008 Allow absolute paths to be provided in start.ini for request log
+   directory.
+ + 6011 OSGi Cannot start Jetty with osgi.boot - Configurations add wrong
+   method taken
+ + 6020 Review Jetty Maven Plugin scanning defaults
+ + 6021 Standardize Path resolution in XmlConfiguration
+ + 6024 Error starting jetty-10: Provider
+   org.eclipse.jetty.websocket.javax.client.JavaxWebSocketShutdownContainer not
+   found
+ + 6026 the jvm DEBUG flag is not working org.eclipse.jetty.LEVEL=DEBUG
+ + 6034 SslContextFactory may select a wildcard certificate during SNI
+   selection when a more specific SSL certificate is present
+ + 6037 Review logging modules for j.u.l
+ + 6050 Websocket: NotUtf8Exception after upgrade 9.4.35 -> 9.4.36 or newer
+ + 6063 Allow override of hazelcast version when using module
+ + 6072 jetty server high CPU when client send data length > 17408 - Resolves
+   CVE-2021-28165
+ + 6076 Embedded Jetty throws null pointer exception
+ + 6082 SslConnection compacting
+ + 6085 Jetty keeps Sessions in use after "Duplicate valid session cookies"
+   Message
+ + 6101 Normalize ambiguous URIs - Resolves CVE-2021-28164
+ + 6102 Exclude webapps directory from deployment scan - Resolves
+   CVE-2021-28163
+
+jetty-10.0.1 - 19 February 2021
+ + 1673 jetty-demo/etc/keystore should not be distributed
+ + 4275 Path Normalization/Traversal - Context Matching
+ + 4515 Validation extension should not downcast CoreSession
+ + 5492 Add ability to manage start modules by java feature
+ + 5499 Improve temporary buffer usage for WebSocket PerMessageDeflate
+ + 5605 Blocked IO Thread not woken
+ + 5689 Jetty ssl keystorePath doesn't work with absolute path
+ + 5706 The WebSocket ServerUpgradeResponse can produce NPE in jetty 10
+ + 5725 Review Preventers
+ + 5755 Cannot configure maxDynamicTableSize on HTTP2Client
+ + 5757 Review Inferred vs Assumed charsets
+ + 5779 Include can set pathInContext
+ + 5783 Fix ConnectionStatistics.*Rate() methods
+ + 5784 Apache 2.0 license incorrectly stated as "secondary license" to EPL 2.0
+ + 5785 Reduce log level for WebSocket connections closed by clients
+ + 5787 Make ManagedSelector report better JMX data
+ + 5794 ServerConnector leaks closed sockets which can lead to file descriptor
+   exhaustion
+ + 5799 Allow specifying the duration an object can stay in a pool
+ + 5824 Build up of ConstraintMappings when stopping and starting WebAppContext
+ + 5830 Jetty-util contains wrong Import-Package
+ + 5844 download flag to jetty-start causes NullPointerException
+ + 5845 Use UTF-8 encoding for client basic auth if requested
+ + 5850 NPE at Principal WebSocketSession.getUserPrincipal()
+ + 5851 org.eclipse.jetty.websocket.servlet.WebSocketServlet cleanup
+ + 5855 HttpClient may not send queued requests
+ + 5859 Classloader leaks from ShutdownThread and QueuedThreadPool
+ + 5866 Support Programmatic WebSocket upgrade in Jetty 10
+ + 5868 Cleaning up request attributes after websocket upgrade in Jetty 10
+ + 5870 jetty-maven-plugin fails to run ServletContainerInitializer on Windows
+   due to URI case comparison bug
+ + 5872 Improve JMX support for Jetty logging
+ + 5880 Move test-simple-webapp to demos
+ + 5882 Simplify ALPN modules
+ + 5901 Starting Jetty with JPMS produces warnings about Servlet resources not
+   found
+ + 5909 Cannot disable HTTP OPTIONS Method
+ + 5933 ClientCertAuthenticator is not taking account SslContext configuration
+ + 5937 Unnecessary blocking in ResourceService
+ + 5939 Use unwrapped exception as exception type for error handling
+ + 5950 Deadlock due to logging inside classloaders
+ + 5963 Improve QuotedQualityCSV - Resolves CVE-2020-27223
+ + 5966 jetty-home should not have a webapps/ directory
+ + 5973 Proxy client TLS authentication example
+ + 5977 Cache-Control header set by a filter is override by the value from
+   DefaultServlet configuration
+ + 5979 Configurable gzip Etag extension
+
+jetty-10.0.0 - 02 December 2020
+ + 1923 GCThreadLeakPreventer won't work with Java 9
+ + 4711 Reset trailers on recycled response
+ + 5272 The UserStore and PropertyUserStore classes are hard to re-use for
+   caching eg JDBC data
+ + 5310 Jetty Http2 client discards the response fames when there is GOAWAY and
+   sends RST_STREAM
+ + 5320 Using WebSocketClient with jetty-websocket-httpclient.xml in a Jetty
+   web application causes ClassCastException
+ + 5486 PropertyFileLoginModule retains PropertyUserStores
+ + 5488 jetty-dir.css not found when using JPMS
+ + 5493 StatisticsHandler broken for async applications
+ + 5498 Review ServletHolder.getServlet
+ + 5521 ResourceCollection NPE in list()
+ + 5535 Support regex in SslContextFactory include/exclude of protocols
+ + 5539 StatisticsServlet output is not valid
+ + 5555 NPE for servlet with no mapping
+ + 5562 ArrayTernaryTrie consumes too much memory
+ + 5575 Add SEARCH as a known HttpMethod
+ + 5605 java.io.IOException: unconsumed input during http request parsing -
+   Resolves CVE-2020-27218
+ + 5633 Allow to configure HttpClient request authority
+ + 5679 Distro argument --list-all-modules does not work
+ + 5680 No way to see which modules are enabled for the distro
+ + 5691 HttpInput may skip setting fill interest
+
+jetty-10.0.0.beta3 - 21 October 2020
+ + 5022 Cleanup ServletHandler, specifically with respect to making filter
+   chains more extensible
+ + 5287 CompressionPools should use the new jetty-util Pool class
+ + 5360 demo-spec module incorrectly depends on demo-jndi
+ + 5368 WebSocket text event execute in same thread as running binary event and
+   destroy Threadlocal
+ + 5378 Filter/Servlet/Listener Holders are not started if added during
+   STARTING state.
+ + 5379 Better handling for wrong SNI
+ + 5394 Quickstart does not inject/decorate objects
+ + 5401 Move jetty-http-tools under the project root
+ + 5409 HttpClient fails intermittently with "Invalid response state TRANSIENT"
+ + 5417 Badly configured HttpConfiguration.securePort can lead to wrong port
+   produced by ForwardedHeader
+ + 5443 Request without Host header fails with NullPointerException in
+   ForwardedRequestCustomizer
+ + 5448 Request.isSecure() returns false for `https` schemes in Jetty 10
+ + 5451 Improve Working Directory creation - Resolves CVE-2020-27216
+ + 5454 Request error context is not reset
+ + 5475 Update to spifly 1.3.2 and asm 9
+ + 5480 NPE from WebInfConfiguration.deconfigure during WebAppContext shutdown
+
+jetty-10.0.0.beta2 - 02 October 2020
+ + 1337 MultiPart Part.write(String fileName) - Write method used unexpected
+   path
+ + 1761 Make GzipHandler module more configurable
+ + 2609 Make finding orphaned expired sessions common across SessionDataStores
+ + 2796 HTTP/2 max local stream count exceeded when request fails
+ + 3766 Introduce HTTP/2 API to batch frames
+ + 3916 multipart/byterange output is invalid to RFC7233
+ + 4430 Duplicate generation of servlets/filters/listeners from context xml
+   with quickstart
+ + 4572 Replace Jetty Logging with slf4j
+ + 4736 Update Import-Package version start ranges
+ + 4808 Review HttpClient Request header APIs
+ + 4809 Set a max number of requests per connection
+ + 4824 WebSocket server outgoing message queue memory growth
+ + 4888 Request getSession() method throws IllegalStateException when Session
+   exists
+ + 4919 websocket container stop ordering
+ + 4954 Simplify ability to get Byte Counts about requests
+ + 4985 Fix NPE related to use of Attributes.Wrapper getAttributeNameSet()
+ + 4988 The check for whether a mime type is gzipable modifies (lower-cases)
+   the content type
+ + 4996 Warning log printed when debug is enabled in AbstractLifecycle.java
+ + 5013 Bundle-ClassPath and lib place on WEB-INF/lib make classpath duplicate
+ + 5018 WebSocketClient connect / upgrade timeout not configurable
+ + 5019 Automatically hot-reload SSL certificates if keystore file changed
+ + 5020 LifeCycle.Listener not called for Filter/Servlet/Listener lifecycle
+   events
+ + 5025 dispatcher.include() with welcome files lead to stack overflow error
+ + 5029 Open redirect when sending custom Host header to URL with no trailing
+   forward-slash
+ + 5032 Introduce Listeners to aid in tracking timings within ServletContext
+   and WebApp
+ + 5043 WebSocketListener anonymous classes should be invocable
+ + 5044 Jetty WebSocket UpgradeRequest & UpgradeResponse types in Jetty 10
+ + 5053 CWE-331 in DigestAuthentication class
+ + 5057 `javax.servlet.include.context_path` attribute on root context. should
+   be empty string, but is `"/"`
+ + 5064 NotSerializableException for OpenIdConfiguration
+ + 5069 HttpClientTimeoutTests can occasionally fail due to unreachable network
+ + 5079 authority header for IPv6 address not having square brackets
+ + 5081 Review HouseKeeper locking
+ + 5083 Convert synchronized usages to AutoLock
+ + 5096 using JettyWebSocketServlet without having a WebSocketUpgradeFilter
+ + 5103 Proxy sets protocol version to 2.0 instead of 1.1 when accessed from H2
+   client
+ + 5104 AbstractProxyServlet include incorrect protocol version in Via header
+   when accessed over H2
+ + 5105 Graceful shutdown does not wait for resumed requests
+ + 5108 Improve SessionTracker scalability
+ + 5122 Retrieving websocket connections via jmx
+ + 5129 No jars added when using a folder in extraClasspath of the webapp
+   context xml file
+ + 5133 Improve ResourceFactory and Resource list handling
+ + 5137 WebAppContext Tests need cleanup
+ + 5147 Set MaxUsageCount with existing connection pool changing the behavior
+ + 5150 Zero connection timeout is not supported in HTTP client with
+   non-blocking connect
+ + 5152 HttpClient should handle unsolicited responses
+ + 5162 DecoratingListener raises a NullPointerException
+ + 5165 Wrong messagesIn count for HttpClient
+ + 5170 NullPointerException in HttpReceiverOverHTTP during WebSocket client
+   Upgrade
+ + 5171 GzipHandler Vary head should be configurable
+ + 5174 Remove jetty-distribution in favor of jetty-home
+ + 5178 Update to asm 8.0.1
+ + 5185 Introduce DoSFilter Listener for Alert messages
+ + 5193 WebSocket unimplemented BINARY message handling can result in TEXT
+   message delivery to fail
+ + 5198 Update GzipHandler
+ + 5201 QueuedThreadPool setDetailedDump gives less detail
+ + 5204 SNI does not work with PKIX
+ + 5214 Servlet HEAD doesn't support content-length over Integer.MAX_VALUE
+ + 5217 Review RoundRobinConnectionPool
+ + 5224 HttpServletRequest.getServerName can include port when using
+   ForwardedRequestCustomizer
+ + 5233 Bad/Unsupported HTTP version should return 505 not 400
+ + 5246 GzipHandler's DeflaterPool should be dumpable
+ + 5247 Improve ForwardRequestCustomizer authority priority
+ + 5254 Short list of Jetty modules
+ + 5256 Cleanup Jetty 10 Start
+ + 5263 Introduce jetty-home contamination warning
+ + 5264 Create demo module
+ + 5268 WARN Ignoring eviction setting: 0
+ + 5280 Remove unused methods on SessionHandler
+ + 5285 Per RFC7694, if a Content-Encoding isn't recognized, reject with 415
+   Unsupported Media Type
+ + 5304 HTTP/2 with HttpServletRequest.getHeader("Host") returns null on Jetty
+   10, but a valid value on Jetty 9
+ + 5316 Review <Map> element in Jetty XML
+ + 5317 Remove jetty-all from Jetty 10
+ + 5321 javadoc:aggregate-jar broken in Jetty 10
+ + 5324 Jetty XML <Get> should support nested elements
+ + 5327 NPE from jetty test webapp
+ + 5357 Update http://eclipse.org to https://eclipse.org in source
+ + 5360 demo-spec module incorrectly depends on demo-jndi
+ + 5362 Default ProxyServlet cannot proxy to https urls
+ + 5365 org.eclipse.jetty.server.Request throws NullPointerException if
+   SessionHandler newHttpSession returns null
 
 jetty-10.0.0.beta1 - 10 July 2020
  + 1100 JSR356 Encoder#init is not called when created on demand
@@ -14,8 +325,6 @@ jetty-10.0.0.beta1 - 10 July 2020
    SETTINGS Frame.
  + 4903 Give better errors for non public Websocket Endpoints
  + 4904 WebsocketClient creates more connections than needed
- + 4907
-   org.eclipse.jetty.websocket.tests.SuspendResumeTest#testSuspendAfterClose
  + 4913 DirectoryNotEmptyException when using mvn jetty:run-distro
  + 4920 Restore ability to delete sessions on stop
  + 4921 Quickstart run improperly runs dynamically added context initializers
@@ -27,7 +336,7 @@ jetty-10.0.0.beta1 - 10 July 2020
    session
  + 4967 Possible buffer corruption in HTTP/2 session failures
  + 4971 Simplify Connection.upgradeFrom()/upgradeTo()
- + 4976 HttpClient async content throws NPE in DEBUG log 
+ + 4976 HttpClient async content throws NPE in DEBUG log
  + 4981 Incorrect example for TryFilesFilter API docs
  + 4985 NPE related to WebSocket with Vaadin / Atmosphere after switching from
    9.4.26 to 9.4.30
@@ -35,6 +344,189 @@ jetty-10.0.0.beta1 - 10 July 2020
    (example jakarta.xml.ws-api_2.3.2.jar)
  + 5000 NPE from Server.dump of FilterMapping
  + 5018 WebSocketClient upgrade request timeout not configurable
+
+jetty-9.4.43.v20210629 - 30 June 2021
+ + 6379 Reduce contention in all `ByteBufferPool` implementations
+ + 6382 HttpClient TimeoutException message reports transient values
+ + 6400 QueuedThreadPool interrupts pool threads when stopped with zero timeout
+ + 6425 Update to asm 9.1
+ + 6447 Deprecate support for UTF16 encoding in URIs
+ + 6470 java.nio.ReadOnlyBufferException
+ + 6473 Improve alias checking in PathResource
+
+jetty-9.4.42.v20210604 - 04 June 2021
+ + 5379 Better handling for wrong SNI
+ + 5931 SslConnection should implement getBytesIn()/getBytesOut()
+ + 6118 Display a warning when Hazelcast configuration does not contain Jetty
+   session serializer
+ + 6276 Support non-standard domains in SNI and X509
+ + 6287 Class loading broken for WebSocketClient used inside webapp
+ + 6323 HttpClient gets stuck/never calls onComplete() when multiple requests
+   with timeouts are sent
+
+jetty-9.4.41.v20210516 - 16 May 2021
+ + 6099 Cipher preference may break SNI if certificates have different key
+   types
+ + 6186 Add Null Protection on Log / Logger
+ + 6205 OpenIdAuthenticator may use incorrect redirect
+ + 6208 HTTP/2 max local stream count exceeded
+ + 6227 Better resolve race between `AsyncListener.onTimeout` and
+   `AsyncContext.dispatch`
+ + 6254 Total timeout not enforced for queued requests
+ + 6263 Review URI encoding in ConcatServlet & WelcomeFilter (Resolved
+   CVE-2021-28169)
+ + 6277 Better handle exceptions thrown from session destroy listener
+ + 6280 Copy ServletHolder class/instance properly during startWebapp
+
+jetty-9.4.40.v20210413 - 13 April 2021
+ + 6082 SslConnection compacting
+ + 6105 HttpConnection.getBytesIn() incorrect for requests with chunked content
+ + 6148 Jetty start.jar always reports jetty.tag.version as `master`
+ + 6168 Improve handling of unconsumed content
+
+jetty-9.4.39.v20210325 - 25 March 2021
+ + 6034 SslContextFactory may select a wildcard certificate during SNI
+   selection when a more specific SSL certificate is present
+ + 6050 Websocket: NotUtf8Exception after upgrade to 9.4.36 or newer
+ + 6052 Cleanup TypeUtil and ModuleLocation to allow jetty-client/hybrid to
+   work on Android
+ + 6063 Allow override of hazelcast version when using module
+ + 6072 jetty server high CPU when client send data length > 17408 - Resolves
+   CVE-2021-28165
+ + 6085 Jetty keeps Sessions in use after "Duplicate valid session cookies"
+   Message
+ + 6101 Normalize ambiguous URIs - Resolves CVE-2021-28164
+ + 6102 Exclude webapps directory from deployment scan - Resolves
+   CVE-2021-28163
+
+jetty-9.4.38.v20210224 - 24 February 2021
+ + 4275 Path Normalization/Traversal - Context Matching
+ + 5963 Improve QuotedQualityCSV for CVE-2020-27223
+ + 5977 Cache-Control header set by a filter is override by the value from
+   DefaultServlet configuration
+ + 5994 QueuedThreadPool "free" threads
+ + 5999 HttpURI ArrayIndexOutOfBounds
+ + 6001 Ambiguous URI legacy compliance mode
+
+jetty-9.4.37.v20210219 - 19 February 2021
+ + 4275 Path Normalization/Traversal - Context Matching
+ + 5492 Add ability to manage start modules by java feature
+ + 5605 Blocked IO Thread not woken
+ + 5787 Make ManagedSelector report better JMX data
+ + 5851 org.eclipse.jetty.websocket.servlet.WebSocketServlet cleanup
+ + 5859 Classloader leaks from ShutdownThread and QueuedThreadPool
+ + 5909 Cannot disable HTTP OPTIONS Method
+ + 5937 Unnecessary blocking in ResourceService
+ + 5950 Deadlock due to logging inside classloaders
+ + 5963 Improve QuotedQualityCSV - Resolves CVE-2020-27223
+ + 5973 Proxy client TLS authentication example
+ + 5977 Cache-Control header set by a filter is override by the value from
+   DefaultServlet configuration
+ + 5979 Configurable gzip Etag extension
+
+jetty-9.4.36.v20210114 - 14 January 2021
+ + 5310 Jetty Http2 client discards the response frames when there is GOAWAY
+   and sends RST_STREAM
+ + 5499 Improve temporary buffer usage for WebSocket PerMessageDeflate
+ + 5633 Allow to configure HttpClient request authority
+ + 5689 Jetty ssl keystorePath doesn't work with absolute path
+ + 5755 Cannot configure maxDynamicTableSize on HTTP2Client
+ + 5783 Fix ConnectionStatistics.*Rate() methods
+ + 5785 Reduce log level for WebSocket connections closed by clients
+ + 5794 ServerConnector leaks closed sockets which can lead to file descriptor
+   exhaustion
+ + 5824 Build up of ConstraintMappings when stopping and starting WebAppContext
+ + 5830 Jetty-util contains wrong Import-Package
+ + 5844 download flag to jetty-start causes NullPointerException
+ + 5845 Use UTF-8 encoding for client basic auth if requested
+ + 5855 HttpClient may not send queued requests
+ + 5870 jetty-maven-plugin fails to run ServletContainerInitializer on Windows
+   due to URI case comparison bug
+
+jetty-9.4.35.v20201120 - 20 November 2020
+ + 4711 Reset trailers on recycled response
+ + 5486 PropertyFileLoginModule retains PropertyUserStores
+ + 5539 StatisticsServlet output is not valid
+ + 5562 ArrayTernaryTrie consumes too much memory
+ + 5575 Add SEARCH as a known HttpMethod
+ + 5605 java.io.IOException: unconsumed input during http request parsing -
+   Resolves CVE-2020-27218
+ + 5633 Allow to configure HttpClient request authority
+
+jetty-9.4.34.v20201102 - 02 November 2020
+ + 5320 Using WebSocketClient with jetty-websocket-httpclient.xml in a Jetty
+   web application causes ClassCastException
+ + 5488 jetty-dir.css not found when using JPMS
+ + 5498 ServletHolder lifecycle correctness
+ + 5521 ResourceCollection NPE in list()
+ + 5535 Support regex in SslContextFactory include/exclude of protocols
+ + 5555 NPE for servlet with no mapping
+
+jetty-9.4.33.v20201020 - 20 October 2020
+ + 5022 Cleanup ServletHandler, specifically with respect to making filter
+   chains more extensible
+ + 5368 WebSocket text event execute in same thread as running binary event and
+   destroy Threadlocal
+ + 5378 Filter/Servlet/Listener Holders are not started if added during
+   STARTING state.
+ + 5409 HttpClient fails intermittently with "Invalid response state TRANSIENT"
+ + 5417 Badly configured HttpConfiguration.securePort can lead to wrong port
+   produced by ForwardedHeader
+ + 5443 Request without Host header fails with NullPointerException in
+   ForwardedRequestCustomizer
+ + 5451 Improve Working Directory creation - Resolves CVE-2020-27216
+ + 5454 Request error context is not reset
+ + 5475 Update to spifly 1.3.2 and asm 9
+ + 5480 NPE from WebInfConfiguration.deconfigure during WebAppContext shutdown
+
+jetty-9.4.32.v20200930 - 30 September 2020
+ + 2796 HTTP/2 max local stream count exceeded when request fails
+ + 3766 Introduce HTTP/2 API to batch frames
+ + 3916 multipart/byterange output is invalid to RFC7233
+ + 4809 Set a max number of requests per connection
+ + 4824 WebSocket server outgoing message queue memory growth
+ + 4888 Request getSession() method throws IllegalStateException when Session
+   exists
+ + 4954 Simplify ability to get Byte Counts about requests
+ + 5032 Introduce Listeners to aid in tracking timings within ServletContext
+   and WebApp
+ + 5079 authority header for IPv6 address not having square brackets
+ + 5103 Proxy sets protocol version to 2.0 instead of 1.1 when accessed from H2
+   client
+ + 5104 AbstractProxyServlet include incorrect protocol version in Via header
+   when accessed over H2
+ + 5105 Graceful shutdown does not wait for resumed requests
+ + 5108 Improve SessionTracker scalability
+ + 5121 Add if (LOG.isDebugEnabled()) in CompressExtension.decompress
+ + 5122 Retrieving websocket connections via jmx
+ + 5129 No jars added when using a folder in extraClasspath of the webapp
+   context xml file
+ + 5147 Set MaxUsageCount with existing connection pool changing the behavior
+ + 5150 Zero connection timeout is not supported in HTTP client with
+   non-blocking connect
+ + 5152 HttpClient should handle unsolicited responses
+ + 5162 DecoratingListener raises a NullPointerException
+ + 5165 Wrong messagesIn count for HttpClient
+ + 5170 NullPointerException in HttpReceiverOverHTTP during WebSocket client
+   Upgrade
+ + 5185 Introduce DoSFilter Listener for Alert messages
+ + 5193 WebSocket unimplemented BINARY message handling can result in TEXT
+   message delivery to fail
+ + 5201 QueuedThreadPool setDetailedDump gives less detail
+ + 5204 SNI does not work with PKIX
+ + 5214 Servlet HEAD doesn't support content-length over Integer.MAX_VALUE
+ + 5217 Review RoundRobinConnectionPool
+ + 5224 HttpServletRequest.getServerName can include port when using
+   ForwardedRequestCustomizer
+ + 5233 Bad/Unsupported HTTP version should return 505 not 400
+ + 5246 GzipHandler's DeflaterPool should be dumpable
+ + 5247 Improve ForwardRequestCustomizer authority priority
+ + 5268 WARN Ignoring eviction setting: 0
+ + 5285 Per RFC7694, if a Content-Encoding isn't recognized, reject with 415
+   Unsupported Media Type
+ + 5362 Default ProxyServlet cannot proxy to https urls
+ + 5365 org.eclipse.jetty.server.Request throws NullPointerException if
+   SessionHandler newHttpSession returns null
 
 jetty-9.4.31.v20200723 - 23 July 2020
  + 1100 JSR356 Encoder#init is not called when created on demand
@@ -61,7 +553,6 @@ jetty-9.4.31.v20200723 - 23 July 2020
  + 5057 `javax.servlet.include.context_path` attribute on root context. should
    be empty string, but is `"/"`
  + 5064 NotSerializableException for OpenIdConfiguration
- + 5069 HttpClientTimeoutTests can occasionally fail due to unreachable network
 
 jetty-9.4.30.v20200611 - 11 June 2020
  + 4776 Incorrect path matching for WebSocket using PathMappings
@@ -81,7 +572,8 @@ jetty-9.4.30.v20200611 - 11 June 2020
  + 4923 SecureRequestCustomizer.SslAttributes does not cache cert chain like
    before
  + 4929 HttpClient: HttpCookieStore.Empty prevents sending cookies
- + 4936 Response header overflow leads to buffer corruptions
+ + 4936 Response header overflow leads to buffer corruptions - Resolves
+   CVE-2019-17638
 
 jetty-9.4.29.v20200521 - 21 May 2020
  + 2188 Lock contention creating HTTP/2 streams
@@ -218,7 +710,7 @@ jetty-9.4.24.v20191120 - 20 November 2019
  + 3083 The ini-template for jetty.console-capture.dir does not match the
    default value
  + 4128 OpenIdCredetials can't decode JWT ID token
- + 4334 Better test ErrorHandler changes
+ + 4334 Better test ErrorHandler changes - Resolves CVE-2019-17632
 
 jetty-9.4.23.v20191118 - 18 November 2019
  + 1485 Add systemd service file
@@ -308,6 +800,8 @@ jetty-9.4.22.v20191022 - 22 October 2019
    inclusion of sessionid
 
 jetty-9.4.21.v20190926 - 26 September 2019
+ + Includes fixes for CVE-2019-9511, CVE-2019-9512, CVE-2019-9514,
+   CVE-2019-9515, CVE-2019-9516, and CVE-2019-9518
  + 97 Permanent UnavailableException thrown during servlet request handling
    should cause servlet destroy
  + 137 Support OAuth
@@ -361,10 +855,8 @@ jetty-9.4.20.v20190813 - 13 August 2019
  + 3648 javax.websocket client container incorrectly creates Server
    SslContextFactory
  + 3698 Missing WebSocket ServerContainer after server restart
- + 3700 stackoverflow in WebAppClassLoaderUrlStreamTest
  + 3708 Swap various java.lang.String replace() methods for better performant
    ones
- + 3731 Add testing of CDI behaviors
  + 3736 NPE from WebAppClassLoader during CDI
  + 3746 ClassCastException in WriteFlusher.java - IdleState cannot be cast to
    FailedState
@@ -453,8 +945,10 @@ jetty-9.4.18.v20190429 - 29 April 2019
 jetty-9.4.17.v20190418 - 18 April 2019
  + 2140 Infinispan and hazelcast changes to scavenge zombie expired sessions
  + 3464 Split SslContextFactory into Client and Server
- + 3549 Directory Listing on Windows reveals Resource Base path
- + 3555 DefaultHandler Reveals Base Resource Path of each Context
+ + 3549 Directory Listing on Windows reveals Resource Base path - Resolves
+   CVE-2019-10246
+ + 3555 DefaultHandler Reveals Base Resource Path of each Context - Resolves
+   CVE-2019-10247
 
 jetty-9.4.16.v20190411 - 11 April 2019
  + 1861 Limit total bytes pooled by ByteBufferPools
@@ -462,7 +956,8 @@ jetty-9.4.16.v20190411 - 11 April 2019
  + 3159 WebSocket permessage-deflate RSV1 validity check
  + 3274 OSGi versions of java.base classes in
    org.apache.felix:org.osgi.foundation:jar conflicts with new rules on Java 9+
- + 3319 Modernize Directory Listing: HTML5 and Sorting
+ + 3319 Modernize Directory Listing: HTML5 and Sorting - Resolves
+   CVE-2019-10241
  + 3361 HandlerCollection.addHandler is lacking synchronization
  + 3373 OutOfMemoryError: Java heap space in GZIPContentDecoder
  + 3389 Websockets jsr356 willDecode not invoked during decoding
@@ -535,8 +1030,10 @@ jetty-9.3.28.v20191105 - 05 November 2019
  + 4217 SslConnection.DecryptedEnpoint.flush eternal busy loop
 
 jetty-9.3.27.v20190418 - 18 April 2019
- + 3549 Directory Listing on Windows reveals Resource Base path
- + 3555 DefaultHandler Reveals Base Resource Path of each Context
+ + 3549 Directory Listing on Windows reveals Resource Base path - Resolves
+   CVE-2019-10246
+ + 3555 DefaultHandler Reveals Base Resource Path of each Context - Resolves
+   CVE-2019-10247
 
 jetty-9.3.26.v20190403 - 03 April 2019
  + 2954 Improve cause reporting for HttpClient failures
@@ -544,21 +1041,23 @@ jetty-9.3.26.v20190403 - 03 April 2019
    org.apache.felix:org.osgi.foundation:jar conflicts with new rules on Java 9+
  + 3302 Support host:port in X-Forwarded-For header in
    ForwardedRequestCustomizer
- + 3319 Allow reverse sort for directory listed files
+ + 3319 Allow reverse sort for directory listed files - Resolves CVE-2019-10241
 
 jetty-9.2.29.v20191105 - 05 November 2019
  + 4217 SslConnection.DecryptedEnpoint.flush eternal busy loop
 
 jetty-9.2.28.v20190418 - 18 April 2019
- + 3549 Directory Listing on Windows reveals Resource Base path
- + 3555 DefaultHandler Reveals Base Resource Path of each Context
+ + 3549 Directory Listing on Windows reveals Resource Base path - Resolves
+   CVE-2019-10246
+ + 3555 DefaultHandler Reveals Base Resource Path of each Context - Resolves
+   CVE-2019-10247
 
 jetty-9.2.27.v20190403 - 03 April 2019
- + 3319 Refactored Directory Listing to modernize and avoid XSS
+ + 3319 Refactored Directory Listing to modernize and avoid XSS - Resolves
+   CVE-2019-10241
 
 jetty-9.4.14.v20181114 - 14 November 2018
  + 3097 Duplicated programmatic Servlet Listeners causing duplicate calls
- + 3103 HttpClientLoadTest reports a leak in byte buffer
  + 3104 Align jetty-schemas version within apache-jsp module as well
 
 jetty-9.4.13.v20181111 - 11 November 2018
@@ -622,8 +1121,6 @@ jetty-9.4.12.v20180830 - 30 August 2018
    Runtimes
  + 2075 Deprecating MultiException
  + 2135 Android 8.1 needs direct buffers for SSL/TLS to work
- + 2233 JDK9 Test failure:
-   org.eclipse.jetty.server.ThreadStarvationTest.testWriteStarvation[https/ssl/tls]
  + 2342 File Descriptor Leak: Conscrypt: "Too many open files"
  + 2349 HTTP/2 max streams enforcement
  + 2398 MultiPartFormInputStream parsing should default to UTF-8, but allowed
@@ -633,9 +1130,6 @@ jetty-9.4.12.v20180830 - 30 August 2018
  + 2530 Client waits forever for cancelled large uploads
  + 2560 Review PathResource exception handling
  + 2565 HashLoginService silently ignores file:/ config paths from 9.3.x
- + 2592 Failing test on Windows:
-   ServerTimeoutsTest.testAsyncWriteIdleTimeoutFires[transport: HTTP]
- + 2597 Failing tests on windows UnixSocketTest
  + 2631 IllegalArgumentException: Buffering capacity exceeded, from HttpClient
    HEAD Requests to resources referencing large body contents
  + 2648 LdapLoginModule fails with forceBinding=true under Java 9
@@ -697,7 +1191,6 @@ jetty-9.4.12.v20180830 - 30 August 2018
    hot redeploy on Windows
  + 2836 Sequential HTTPS requests may not reuse the same connection
  + 2844 Clean up webdefault.xml and DefaultServlet doc
- + 2846 add unit test for ldap module
  + 2847 Wrap Connection.Listener invocations in try/catch
  + 2860 Leakage of HttpDestinations in HttpClient
  + 2871 Server reads -1 after client resets HTTP/2 stream
@@ -1056,7 +1549,6 @@ jetty-9.4.7.v20170914 - 14 September 2017
  + 1759 HTTP/2: producer can block in onReset
  + 1766 JettyClientContainerProvider does not actually use common objects
    correctly
- + 1789 PropertyUserStoreTest failures in Windows
  + 1790 HTTP/2: 100% CPU usage seen during close/shutdown of endpoint
  + 1792 Accept ISO-8859-1 characters in response reason
  + 1794 Config properties typos in session-store-cache.mod
@@ -1069,8 +1561,6 @@ jetty-9.4.7.v20170914 - 14 September 2017
  + 1809 NPE: StandardDescriptorProcessor.visitSecurityConstraint() with null/no
    security manager
  + 1814 Move JavaVersion to jetty-util for future Java 9 support requirements
- + 1816 HttpClientTest.testClientCannotValidateServerCertificate() hangs with
-   JDK 9
  + 475546 ClosedChannelException when connection to HTTPS over HTTP proxy with
    CONNECT
 
@@ -1292,11 +1782,8 @@ jetty-9.4.3.v20170317 - 17 March 2017
 jetty-9.3.17.v20170317 - 17 March 2017
  + 329 Javadoc for HttpTester and ServletTester needs to reference limited HTTP
    version scope
- + 609 websocket ClientCloseTest testServerNoCloseHandshake is failing
  + 1015 Ensure jetty-distribution excludes git / temp files
  + 1047 ReadPendingException and then thread death
- + 1049 test-jetty-osgi test exits/crashes the surefire forked JVM
- + 1282 ByteArrayEndPointTest.testIdle() failure
  + 1296 Introduce HTTP parser "content complete" event
  + 1326 Jetty shutdown command got NullPointerException (http2 module added to
    start)
@@ -1316,7 +1803,6 @@ jetty-9.3.17.v20170317 - 17 March 2017
  + 1390 HashLoginService and "this.web-inf.url" property are incompatible
  + 1394 Default OS Locale/Encoding/Charset can cause test failures
  + 1396 Set-Cookie produced by Jetty is invalid for RFC6265 and Chrome
- + 1399 SlowClientTest is failing on CI
  + 1401 HttpOutput.recycle() does not clear the write listener
 
 jetty-9.4.2.v20170220 - 20 February 2017
@@ -1420,9 +1906,6 @@ jetty-9.3.16.v20170120 - 20 January 2017
  + 1229 ClassLoader constraint issue when using NativeWebSocketConfiguration
    with WEB-INF/lib/jetty-http.jar present
  + 1234 onBadMessage called from with handled message
- + 1259 HostnameVerificationTest.simpleGetWithHostnameVerificationEnabledTest
-   is broken
- + 1261 Intermittent H2C test failure AsyncIOServletTest.testAsyncReadEarlyEOF
  + 1262 BufferUtil.isMappedBuffer() uses reflection on private JDK fields
  + 1265 JAXB not available in JDK 9
  + 1267 Request.getRemoteUser can throw undeclared IllegalStateException via
@@ -1436,7 +1919,6 @@ jetty-9.3.16.v20170120 - 20 January 2017
  + 1275 Get rid of Mockito
  + 1276 Remove org.eclipse.jetty.websocket.server.WebSocketServerFactory from
    SPI
- + 1277 http2 alpn test error
 
 jetty-9.2.21.v20170120 - 20 January 2017
  + 592 Support no-value Host header in HttpParser
@@ -1472,7 +1954,6 @@ jetty-9.3.15.v20161220 - 20 December 2016
  + 1099 PushCacheFilter pushes POST requests
  + 1108 Please improve logging in SslContextFactory when there are no approved
    cipher suites
- + 1114 Add testcase for WSUF for stop/start of the Server
  + 1118 Filter.destroy() conflicts with ContainerLifeCycle.destroy() in
    WebSocketUpgradeFilter
  + 1123 Broken lifecycle for WebSocket's mappings
@@ -11264,7 +11745,24 @@ jetty-1.1
 jetty-1.0.1
  + Bug fixes
 
-jetty-1.0
+jetty-1.0 - 01 January 1998
+ + MBServlerV5 renamed to Jetty
  + First release in com.mortbay package structure
- + Included Util, JDBC, HTML, HTTP, Jetty
+ + Included Util, JDBC, HTML, HTTP, Jetty MBServler-V4.5Beta + Using It
+   JSDK1.0Beta API + Improved HTML package. + Filter mechanism inspired by
+   JigSaw MBServler-V4
+ + JeevesA1.2 servlet API
+ + Better configuration and setup for embedding in other Java applications.
+ + Util classes from Intelligent Switched Systems. MBServler-V1 / IssueTracker
+   3.1
+ + The IssueTracker HTTP server has been separated from the Issue Tracker
+   application and updated to the java.servlet interface. It is now called
+   MBServler
+ + JDBC module IssueTracker-2.0
+ + Faster HTTP server
+ + Basic authentication
+ + User management IssueTracker-1.0 - Jan 1995
+ + Won the Australian Java Programming Contest!
+ + HTTP Server
+ + Issue tracking application
 

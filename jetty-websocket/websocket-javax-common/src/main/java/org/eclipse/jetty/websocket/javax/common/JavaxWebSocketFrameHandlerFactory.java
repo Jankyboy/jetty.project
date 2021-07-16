@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -43,20 +38,21 @@ import javax.websocket.Session;
 
 import org.eclipse.jetty.http.pathmap.UriTemplatePathSpec;
 import org.eclipse.jetty.websocket.core.CoreSession;
+import org.eclipse.jetty.websocket.core.WebSocketComponents;
+import org.eclipse.jetty.websocket.core.exception.InvalidSignatureException;
+import org.eclipse.jetty.websocket.core.exception.InvalidWebSocketException;
+import org.eclipse.jetty.websocket.core.internal.messages.MessageSink;
+import org.eclipse.jetty.websocket.core.internal.messages.PartialByteArrayMessageSink;
+import org.eclipse.jetty.websocket.core.internal.messages.PartialByteBufferMessageSink;
+import org.eclipse.jetty.websocket.core.internal.messages.PartialStringMessageSink;
+import org.eclipse.jetty.websocket.core.internal.util.InvokerUtils;
+import org.eclipse.jetty.websocket.core.internal.util.ReflectUtils;
 import org.eclipse.jetty.websocket.javax.common.decoders.RegisteredDecoder;
 import org.eclipse.jetty.websocket.javax.common.messages.AbstractDecodedMessageSink;
 import org.eclipse.jetty.websocket.javax.common.messages.DecodedBinaryMessageSink;
 import org.eclipse.jetty.websocket.javax.common.messages.DecodedBinaryStreamMessageSink;
 import org.eclipse.jetty.websocket.javax.common.messages.DecodedTextMessageSink;
 import org.eclipse.jetty.websocket.javax.common.messages.DecodedTextStreamMessageSink;
-import org.eclipse.jetty.websocket.util.InvalidSignatureException;
-import org.eclipse.jetty.websocket.util.InvalidWebSocketException;
-import org.eclipse.jetty.websocket.util.InvokerUtils;
-import org.eclipse.jetty.websocket.util.ReflectUtils;
-import org.eclipse.jetty.websocket.util.messages.MessageSink;
-import org.eclipse.jetty.websocket.util.messages.PartialByteArrayMessageSink;
-import org.eclipse.jetty.websocket.util.messages.PartialByteBufferMessageSink;
-import org.eclipse.jetty.websocket.util.messages.PartialStringMessageSink;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -107,10 +103,12 @@ public abstract class JavaxWebSocketFrameHandlerFactory
 
     protected final JavaxWebSocketContainer container;
     protected final InvokerUtils.ParamIdentifier paramIdentifier;
+    protected final WebSocketComponents components;
 
     public JavaxWebSocketFrameHandlerFactory(JavaxWebSocketContainer container, InvokerUtils.ParamIdentifier paramIdentifier)
     {
         this.container = container;
+        this.components = container.getWebSocketComponents();
         this.paramIdentifier = paramIdentifier == null ? InvokerUtils.PARAM_IDENTITY : paramIdentifier;
     }
 
@@ -170,8 +168,12 @@ public abstract class JavaxWebSocketFrameHandlerFactory
         errorHandle = InvokerUtils.bindTo(errorHandle, endpoint);
         pongHandle = InvokerUtils.bindTo(pongHandle, endpoint);
 
+        // Decorate the endpointInstance while we are still upgrading for access to things like HttpSession.
+        components.getObjectFactory().decorate(endpoint);
+
         return new JavaxWebSocketFrameHandler(
             container,
+            upgradeRequest,
             endpoint,
             openHandle, closeHandle, errorHandle,
             textMetadata, binaryMetadata,
@@ -252,7 +254,7 @@ public abstract class JavaxWebSocketFrameHandlerFactory
 
     protected JavaxWebSocketFrameHandlerMetadata createEndpointMetadata(EndpointConfig endpointConfig)
     {
-        JavaxWebSocketFrameHandlerMetadata metadata = new JavaxWebSocketFrameHandlerMetadata(endpointConfig);
+        JavaxWebSocketFrameHandlerMetadata metadata = new JavaxWebSocketFrameHandlerMetadata(endpointConfig, container.getWebSocketComponents());
         MethodHandles.Lookup lookup = getServerMethodHandleLookup();
 
         Method openMethod = ReflectUtils.findMethod(Endpoint.class, "onOpen", Session.class, EndpointConfig.class);

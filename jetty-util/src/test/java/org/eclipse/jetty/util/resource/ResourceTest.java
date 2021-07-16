@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,6 +16,7 @@ package org.eclipse.jetty.util.resource;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
@@ -34,6 +30,7 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -42,7 +39,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ResourceTest
 {
@@ -215,15 +215,15 @@ public class ResourceTest
         cases.addCase(new Scenario(tdata1, "alphabet.txt", EXISTS, !DIR, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
         cases.addCase(new Scenario(tdata2, "alphabet.txt", EXISTS, !DIR, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
 
-        cases.addCase(new Scenario("jar:file:/somejar.jar!/content/", !EXISTS, DIR));
-        cases.addCase(new Scenario("jar:file:/somejar.jar!/", !EXISTS, DIR));
+        cases.addCase(new Scenario("jar:file:/somejar.jar!/content/", !EXISTS, !DIR));
+        cases.addCase(new Scenario("jar:file:/somejar.jar!/", !EXISTS, !DIR));
 
         String urlRef = cases.uriRef.toASCIIString();
         Scenario zdata = new Scenario("jar:" + urlRef + "TestData/test.zip!/", EXISTS, DIR);
         cases.addCase(zdata);
 
         cases.addCase(new Scenario(zdata, "Unknown", !EXISTS, !DIR));
-        cases.addCase(new Scenario(zdata, "/Unknown/", !EXISTS, DIR));
+        cases.addCase(new Scenario(zdata, "/Unknown/", !EXISTS, !DIR));
 
         cases.addCase(new Scenario(zdata, "subdir", EXISTS, DIR));
         cases.addCase(new Scenario(zdata, "/subdir/", EXISTS, DIR));
@@ -296,5 +296,46 @@ public class ResourceTest
         String globReference = testDir.toAbsolutePath().toString() + File.separator + '*';
         Resource globResource = Resource.newResource(globReference);
         assertNotNull(globResource, "Should have produced a Resource");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    public void testEqualsWindowsAltUriSyntax() throws Exception
+    {
+        URI a = new URI("file:/C:/foo/bar");
+        URI b = new URI("file:///C:/foo/bar");
+
+        Resource ra = Resource.newResource(a);
+        Resource rb = Resource.newResource(b);
+
+        assertEquals(rb, ra);
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    public void testEqualsWindowsCaseInsensitiveDrive() throws Exception
+    {
+        URI a = new URI("file:///c:/foo/bar");
+        URI b = new URI("file:///C:/foo/bar");
+        
+        Resource ra = Resource.newResource(a);
+        Resource rb = Resource.newResource(b);
+
+        assertEquals(rb, ra);
+    }
+
+    @Test
+    public void testClimbAboveBase() throws Exception
+    {
+        Resource resource = Resource.newResource("/foo/bar");
+        assertThrows(MalformedURLException.class, () -> resource.addPath(".."));
+
+        Resource same = resource.addPath(".");
+        assertNotNull(same);
+        assertTrue(same.isAlias());
+
+        assertThrows(MalformedURLException.class, () -> resource.addPath("./.."));
+
+        assertThrows(MalformedURLException.class, () -> resource.addPath("./../bar"));
     }
 }

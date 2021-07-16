@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -50,7 +45,7 @@ import org.eclipse.jetty.util.StringUtil;
  * </p>
  * <p>
  * You can configure this goal to run the webapp either in-process with maven, or 
- * forked into a new process, or deployed into a jetty distribution.
+ * forked into a new process, or deployed into a {@code ${jetty.base}} directory.
  * </p>
  */
 @Mojo(name = "start-war", requiresDependencyResolution = ResolutionScope.RUNTIME)
@@ -61,7 +56,7 @@ public class JettyStartWarMojo extends AbstractWebAppMojo
     
     protected JettyEmbedder embedder;
     protected JettyForker forker;
-    protected JettyDistroForker distroForker;
+    protected JettyHomeForker homeForker;
 
     @Override
     public void configureWebApp() throws Exception
@@ -122,16 +117,16 @@ public class JettyStartWarMojo extends AbstractWebAppMojo
      * Fork a jetty distro to run the given war.
      */
     @Override
-    public void startJettyDistro() throws MojoExecutionException
+    public void startJettyHome() throws MojoExecutionException
     {
         try
         {
-            distroForker = newJettyDistroForker();
-            distroForker.setWaitForChild(false); //never wait for child tofinish
-            distroForker.setMaxChildStartCheckMs(maxChildStartCheckMs);
-            distroForker.setMaxChildStartChecks(maxChildStartChecks);
-            distroForker.setJettyOutputFile(getJettyOutputFile("jetty-start-war.out"));
-            distroForker.start(); //forks a jetty distro
+            homeForker = newJettyHomeForker();
+            homeForker.setWaitForChild(false); //never wait for child tofinish
+            homeForker.setMaxChildStartCheckMs(maxChildStartCheckMs);
+            homeForker.setMaxChildStartChecks(maxChildStartChecks);
+            homeForker.setJettyOutputFile(getJettyOutputFile("jetty-start-war.out"));
+            homeForker.start(); //forks a jetty distro
         }
         catch (Exception e)
         {

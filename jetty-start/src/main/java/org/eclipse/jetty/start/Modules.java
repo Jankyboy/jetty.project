@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -23,7 +18,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -126,12 +120,22 @@ public class Modules implements Iterable<Module>
                 }
                 System.out.println();
             }
-            if (!module.getOptional().isEmpty())
+            if (!module.getBefore().isEmpty())
             {
-                label = "   Optional: %s";
-                for (String parent : module.getOptional())
+                label = "     Before: %s";
+                for (String before : module.getBefore())
                 {
-                    System.out.printf(label, parent);
+                    System.out.printf(label, before);
+                    label = ", %s";
+                }
+                System.out.println();
+            }
+            if (!module.getAfter().isEmpty())
+            {
+                label = "      After: %s";
+                for (String after : module.getAfter())
+                {
+                    System.out.printf(label, after);
                     label = ", %s";
                 }
                 System.out.println();
@@ -166,6 +170,8 @@ public class Modules implements Iterable<Module>
     {
         if (tags.contains("-*"))
             return;
+
+        tags = new ArrayList<>(tags);
 
         boolean wild = tags.contains("*");
         Set<String> included = new HashSet<>();
@@ -313,14 +319,22 @@ public class Modules implements Iterable<Module>
 
                 Set<Module> provided = _provided.get(name);
                 if (provided != null)
+                {
                     for (Module p : provided)
                     {
                         if (p.isEnabled())
                             sort.addDependency(module, p);
                     }
+                }
             };
             module.getDepends().forEach(add);
-            module.getOptional().forEach(add);
+            module.getAfter().forEach(add);
+            module.getBefore().forEach(name ->
+            {
+                Module before = _names.get(name);
+                if (before != null && before.isEnabled())
+                    sort.addDependency(before, module);
+            });
         }
 
         sort.sort(enabled);
@@ -342,13 +356,21 @@ public class Modules implements Iterable<Module>
 
                 Set<Module> provided = _provided.get(name);
                 if (provided != null)
+                {
                     for (Module p : provided)
                     {
                         sort.addDependency(module, p);
                     }
+                }
             };
             module.getDepends().forEach(add);
-            module.getOptional().forEach(add);
+            module.getAfter().forEach(add);
+            module.getBefore().forEach(name ->
+            {
+                Module before = _names.get(name);
+                if (before != null)
+                    sort.addDependency(before, module);
+            });
         }
 
         sort.sort(all);
@@ -529,7 +551,7 @@ public class Modules implements Iterable<Module>
         Set<Module> providers = _provided.get(name);
         StartLog.debug("Providers of [%s] are %s", name, providers);
         if (providers == null || providers.isEmpty())
-            return Collections.emptySet();
+            return Set.of();
 
         providers = new HashSet<>(providers);
 

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -35,6 +30,7 @@ import java.util.function.Consumer;
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.HttpRequest;
 import org.eclipse.jetty.client.HttpResponse;
+import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.util.DecoratedObjectFactory;
@@ -93,7 +89,7 @@ public class WebSocketClient extends ContainerLifeCycle implements WebSocketPoli
         if (httpClient == null)
             coreClient.getHttpClient().setName("Jetty-WebSocketClient@" + hashCode());
 
-        frameHandlerFactory = new JettyWebSocketFrameHandlerFactory(this);
+        frameHandlerFactory = new JettyWebSocketFrameHandlerFactory(this, components);
         sessionListeners.add(sessionTracker);
         addBean(sessionTracker);
     }
@@ -136,6 +132,11 @@ public class WebSocketClient extends ContainerLifeCycle implements WebSocketPoli
 
         JettyClientUpgradeRequest upgradeRequest = new JettyClientUpgradeRequest(coreClient, request, toUri, frameHandlerFactory, websocket);
         upgradeRequest.setConfiguration(configurationCustomizer);
+        for (Request.Listener l : getBeans(Request.Listener.class))
+        {
+            upgradeRequest.listener(l);
+        }
+
         if (upgradeListener != null)
         {
             upgradeRequest.addListener(new UpgradeListener()

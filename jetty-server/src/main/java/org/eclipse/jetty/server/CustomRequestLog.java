@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,12 +16,14 @@ package org.eclipse.jetty.server;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -156,7 +153,7 @@ import static java.lang.invoke.MethodType.methodType;
  *
  * <tr>
  * <td valign="top">%H</td>
- * <td>The request protocol.</td>
+ * <td>The name and version of the request protocol, such as "HTTP/1.1".</td>
  * </tr>
  *
  * <tr>
@@ -284,6 +281,7 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
     private final String _formatString;
     private transient PathMappings<String> _ignorePathMap;
     private String[] _ignorePaths;
+    private BiPredicate<Request, Response> _filter;
 
     public CustomRequestLog()
     {
@@ -316,6 +314,16 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
         }
     }
 
+    /**
+     * This allows you to set a custom filter to decide whether to log a request or omit it from the request log.
+     * This filter is evaluated after path filtering is applied from {@link #setIgnorePaths(String[])}.
+     * @param filter - a BiPredicate which returns true if this request should be logged.
+     */
+    public void setFilter(BiPredicate<Request, Response> filter)
+    {
+        _filter = filter;
+    }
+
     @ManagedAttribute("The RequestLogWriter")
     public RequestLog.Writer getWriter()
     {
@@ -330,11 +338,14 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
     @Override
     public void log(Request request, Response response)
     {
+        if (_ignorePathMap != null && _ignorePathMap.getMatch(request.getRequestURI()) != null)
+            return;
+
+        if (_filter != null && !_filter.test(request, response))
+            return;
+
         try
         {
-            if (_ignorePathMap != null && _ignorePathMap.getMatch(request.getRequestURI()) != null)
-                return;
-
             StringBuilder sb = _buffers.get();
             sb.setLength(0);
 
@@ -945,13 +956,15 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
     @SuppressWarnings("unused")
     private static void logLocalHost(StringBuilder b, Request request, Response response)
     {
-        append(b, request.getHttpChannel().getEndPoint().getLocalAddress().getAddress().getHostAddress());
+        InetSocketAddress local = request.getHttpChannel().getLocalAddress();
+        append(b, local == null ? null : local.getAddress().getHostAddress());
     }
 
     @SuppressWarnings("unused")
     private static void logRemoteHost(StringBuilder b, Request request, Response response)
     {
-        append(b, request.getHttpChannel().getEndPoint().getRemoteAddress().getAddress().getHostAddress());
+        InetSocketAddress remote = request.getHttpChannel().getRemoteAddress();
+        append(b, remote == null ? null : remote.getAddress().getHostAddress());
     }
 
     @SuppressWarnings("unused")
@@ -969,13 +982,15 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
     @SuppressWarnings("unused")
     private static void logLocalPort(StringBuilder b, Request request, Response response)
     {
-        b.append(request.getHttpChannel().getEndPoint().getLocalAddress().getPort());
+        InetSocketAddress local = request.getHttpChannel().getLocalAddress();
+        append(b, local == null ? null : String.valueOf(local.getPort()));
     }
 
     @SuppressWarnings("unused")
     private static void logRemotePort(StringBuilder b, Request request, Response response)
     {
-        b.append(request.getHttpChannel().getEndPoint().getRemoteAddress().getPort());
+        InetSocketAddress remote = request.getHttpChannel().getRemoteAddress();
+        append(b, remote == null ? null : String.valueOf(remote.getPort()));
     }
 
     @SuppressWarnings("unused")

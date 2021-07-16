@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,8 +26,8 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.CompressedContentFormat;
 import org.eclipse.jetty.http.DateGenerator;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.HttpVersion;
-import org.eclipse.jetty.http.tools.HttpTester;
 import org.eclipse.jetty.server.LocalConnector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.gzip.GzipHandler;
@@ -123,7 +118,7 @@ public class GzipDefaultServletTest extends AbstractGzipTest
         // Response Content-Encoding check
         assertThat("Response[Content-Encoding]", response.get("Content-Encoding"), containsString("gzip"));
         assertThat("Response[ETag]", response.get("ETag"), startsWith("W/"));
-        assertThat("Response[ETag]", response.get("ETag"), containsString(CompressedContentFormat.GZIP._etag));
+        assertThat("Response[ETag]", response.get("ETag"), containsString(CompressedContentFormat.GZIP.getEtagSuffix()));
 
         assertThat("Response[Content-Length]", response.get("Content-Length"), is(nullValue()));
         // A HEAD request should have similar headers, but no body
@@ -325,7 +320,7 @@ public class GzipDefaultServletTest extends AbstractGzipTest
         // Response Content-Encoding check
         assertThat("Response[Content-Encoding]", response.get("Content-Encoding"), containsString("gzip"));
         assertThat("Response[ETag]", response.get("ETag"), startsWith("W/"));
-        assertThat("Response[ETag]", response.get("ETag"), containsString(CompressedContentFormat.GZIP._etag));
+        assertThat("Response[ETag]", response.get("ETag"), containsString(CompressedContentFormat.GZIP.getEtagSuffix()));
         assertThat("Response[Vary]", response.get("Vary"), containsString("Accept-Encoding"));
 
         // Response Content checks
@@ -444,7 +439,7 @@ public class GzipDefaultServletTest extends AbstractGzipTest
         // Response Content-Encoding check
         assertThat("Response[Content-Encoding]", response.get("Content-Encoding"), not(containsString("gzip")));
         assertThat("Response[ETag]", response.get("ETag"), startsWith("W/"));
-        assertThat("Response[ETag]", response.get("ETag"), not(containsString(CompressedContentFormat.GZIP._etag)));
+        assertThat("Response[ETag]", response.get("ETag"), not(containsString(CompressedContentFormat.GZIP.getEtagSuffix())));
 
         // Response Content checks
         UncompressedMetadata metadata = parseResponseContent(response);

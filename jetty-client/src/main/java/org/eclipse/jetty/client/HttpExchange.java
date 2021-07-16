@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -23,11 +18,12 @@ import java.util.List;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
+import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.util.thread.AutoLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class HttpExchange
+public class HttpExchange implements CyclicTimeouts.Expirable
 {
     private static final Logger LOG = LoggerFactory.getLogger(HttpExchange.class);
 
@@ -92,6 +88,12 @@ public class HttpExchange
         {
             return responseFailure;
         }
+    }
+
+    @Override
+    public long getExpireNanoTime()
+    {
+        return request.getTimeoutAt();
     }
 
     /**
@@ -304,11 +306,11 @@ public class HttpExchange
     {
         try (AutoLock l = lock.lock())
         {
-            return String.format("%s@%x req=%s/%s@%h res=%s/%s@%h",
+            return String.format("%s@%x{req=%s[%s/%s] res=%s[%s/%s]}",
                 HttpExchange.class.getSimpleName(),
                 hashCode(),
-                requestState, requestFailure, requestFailure,
-                responseState, responseFailure, responseFailure);
+                request, requestState, requestFailure,
+                response, responseState, responseFailure);
         }
     }
 

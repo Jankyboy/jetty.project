@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,7 +17,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Date;
-import java.util.List;
+import java.util.Set;
 
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Execute;
@@ -68,7 +63,7 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
     protected Scanner scanner;
     protected JettyEmbedder embedder;
     protected JettyForker forker;
-    protected JettyDistroForker distroForker;
+    protected JettyHomeForker homeForker;
     protected Path war;
     
     @Override
@@ -133,15 +128,14 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
      * Deploy the built war to a jetty distro.
      */
     @Override
-    public void startJettyDistro() throws MojoExecutionException
+    public void startJettyHome() throws MojoExecutionException
     {
         try
         {
-            distroForker = newJettyDistroForker();
-            distroForker.setWaitForChild(true); //we always run at the command line, echo child output and wait for it
+            homeForker = newJettyHomeForker();
+            homeForker.setWaitForChild(true); //we always run at the command line, echo child output and wait for it
             startScanner();
-            distroForker.start(); //forks a jetty distro
-
+            homeForker.start(); //forks a jetty distro
         }
         catch (Exception e)
         {
@@ -198,7 +192,7 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
             configureScanTargetPatterns(scanner);
             scanner.addListener(new Scanner.BulkListener()
             {
-                public void filesChanged(List<String> changes)
+                public void filesChanged(Set<String> changes)
                 {
                     try
                     {
@@ -207,7 +201,7 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
                     }
                     catch (Exception e)
                     {
-                        getLog().error("Error reconfiguring/restarting webapp after change in watched files",e);
+                        getLog().error("Error reconfiguring/restarting webapp after change in watched files", e);
                     }
                 }
             });
@@ -268,8 +262,12 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
                 
                 break;
             }
+            case HOME:
             case DISTRO:
+            case EXTERNAL:
             {
+                if (deployMode != DeploymentMode.EXTERNAL)
+                    getLog().warn(deployMode + " mode is deprecated, use mode EXTERNAL");
                 verifyPomConfiguration();
                 if (reconfigure)
                 {
@@ -280,7 +278,7 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
                 }
                 configureWebApp();
                 //regenerate the webapp and redeploy it
-                distroForker.redeployWebApp();
+                homeForker.redeployWebApp();
                 //restart scanner
                 scanner.start();
 

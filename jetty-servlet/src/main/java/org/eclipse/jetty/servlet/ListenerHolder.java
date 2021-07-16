@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -80,30 +75,22 @@ public class ListenerHolder extends BaseHolder<EventListener>
             throw new IllegalStateException(msg);
         }
 
-        ContextHandler contextHandler = ContextHandler.getCurrentContext().getContextHandler();
-        if (contextHandler != null)
+        ContextHandler contextHandler = null;
+        if (getServletHandler() != null)
+            contextHandler = getServletHandler().getServletContextHandler();
+        if (contextHandler == null && ContextHandler.getCurrentContext() != null)
+            contextHandler = ContextHandler.getCurrentContext().getContextHandler();
+        if (contextHandler == null)
+            throw new IllegalStateException("No Context");
+
+        _listener = getInstance();
+        if (_listener == null)
         {
-            _listener = getInstance();
-            if (_listener == null)
-            {
-                //create an instance of the listener and decorate it
-                try
-                {
-                    _listener = createInstance();
-                }
-                catch (ServletException ex)
-                {
-                    Throwable cause = ex.getRootCause();
-                    if (cause instanceof InstantiationException)
-                        throw (InstantiationException)cause;
-                    if (cause instanceof IllegalAccessException)
-                        throw (IllegalAccessException)cause;
-                    throw ex;
-                }
-            }
+            //create an instance of the listener and decorate it
+            _listener = createInstance();
             _listener = wrap(_listener, WrapFunction.class, WrapFunction::wrapEventListener);
-            contextHandler.addEventListener(_listener);
         }
+        contextHandler.addEventListener(_listener);
     }
 
     @Override
@@ -145,7 +132,7 @@ public class ListenerHolder extends BaseHolder<EventListener>
     @Override
     public String toString()
     {
-        return super.toString() + ": " + getClassName();
+        return String.format("%s@%x{src=%s}", getClassName(), hashCode(), getSource());
     }
 
     /**

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,7 +26,6 @@ import java.util.Collections;
 import java.util.EventListener;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -157,7 +151,7 @@ public class WebAppContext extends ServletContextHandler implements WebAppClassL
 {
     static final Logger LOG = LoggerFactory.getLogger(WebAppContext.class);
 
-    public static final String TEMPDIR = "javax.servlet.context.tempdir";
+    public static final String TEMPDIR = ServletContext.TEMPDIR;
     public static final String BASETEMPDIR = "org.eclipse.jetty.webapp.basetempdir";
     public static final String WEB_DEFAULTS_XML = "org/eclipse/jetty/webapp/webdefault.xml";
     public static final String ERROR_PAGE = "org.eclipse.jetty.server.error_page";
@@ -406,7 +400,7 @@ public class WebAppContext extends ServletContextHandler implements WebAppClassL
         if (uriInContext == null || !uriInContext.startsWith(URIUtil.SLASH))
             throw new MalformedURLException(uriInContext);
 
-        IOException ioe = null;
+        MalformedURLException mue = null;
         Resource resource = null;
         int loop = 0;
         while (uriInContext != null && loop++ < 100)
@@ -419,16 +413,16 @@ public class WebAppContext extends ServletContextHandler implements WebAppClassL
 
                 uriInContext = getResourceAlias(uriInContext);
             }
-            catch (IOException e)
+            catch (MalformedURLException e)
             {
                 LOG.trace("IGNORED", e);
-                if (ioe == null)
-                    ioe = e;
+                if (mue == null)
+                    mue = e;
             }
         }
 
-        if (ioe instanceof MalformedURLException)
-            throw (MalformedURLException)ioe;
+        if (mue != null)
+            throw mue;
 
         return resource;
     }
@@ -757,37 +751,25 @@ public class WebAppContext extends ServletContextHandler implements WebAppClassL
     @Override
     public boolean isServerClass(Class<?> clazz)
     {
-        boolean result = _serverClasses.match(clazz);
-        if (LOG.isDebugEnabled())
-            LOG.debug("isServerClass=={} {}", result, clazz);
-        return result;
+        return _serverClasses.match(clazz);
     }
 
     @Override
     public boolean isSystemClass(Class<?> clazz)
     {
-        boolean result = _systemClasses.match(clazz);
-        if (LOG.isDebugEnabled())
-            LOG.debug("isSystemClass=={} {}", result, clazz);
-        return result;
+        return _systemClasses.match(clazz);
     }
 
     @Override
     public boolean isServerResource(String name, URL url)
     {
-        boolean result = _serverClasses.match(name, url);
-        if (LOG.isDebugEnabled())
-            LOG.debug("isServerResource=={} {} {}", result, name, url);
-        return result;
+        return _serverClasses.match(name, url);
     }
 
     @Override
     public boolean isSystemResource(String name, URL url)
     {
-        boolean result = _systemClasses.match(name, url);
-        if (LOG.isDebugEnabled())
-            LOG.debug("isSystemResource=={} {} {}", result, name, url);
-        return result;
+        return _systemClasses.match(name, url);
     }
 
     @Override
@@ -1456,6 +1438,9 @@ public class WebAppContext extends ServletContextHandler implements WebAppClassL
         @Override
         public URL getResource(String path) throws MalformedURLException
         {
+            if (path == null)
+                return null;
+
             Resource resource = WebAppContext.this.getResource(path);
             if (resource == null || !resource.exists())
                 return null;

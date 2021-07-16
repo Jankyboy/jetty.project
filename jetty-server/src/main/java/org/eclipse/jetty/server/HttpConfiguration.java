@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -27,9 +22,9 @@ import org.eclipse.jetty.http.CookieCompliance;
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpScheme;
+import org.eclipse.jetty.http.UriCompliance;
+import org.eclipse.jetty.util.Index;
 import org.eclipse.jetty.util.Jetty;
-import org.eclipse.jetty.util.TreeTrie;
-import org.eclipse.jetty.util.Trie;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.Dumpable;
@@ -51,7 +46,10 @@ public class HttpConfiguration implements Dumpable
 {
     public static final String SERVER_VERSION = "Jetty(" + Jetty.VERSION + ")";
     private final List<Customizer> _customizers = new CopyOnWriteArrayList<>();
-    private final Trie<Boolean> _formEncodedMethods = new TreeTrie<>();
+    private final Index.Mutable<Boolean> _formEncodedMethods = new Index.Builder<Boolean>()
+        .caseSensitive(false)
+        .mutable()
+        .build();
     private int _outputBufferSize = 32 * 1024;
     private int _outputAggregationSize = _outputBufferSize / 4;
     private int _requestHeaderSize = 8 * 1024;
@@ -72,6 +70,7 @@ public class HttpConfiguration implements Dumpable
     private long _minRequestDataRate;
     private long _minResponseDataRate;
     private HttpCompliance _httpCompliance = HttpCompliance.RFC7230;
+    private UriCompliance _uriCompliance = UriCompliance.DEFAULT;
     private CookieCompliance _requestCookieCompliance = CookieCompliance.RFC6265;
     private CookieCompliance _responseCookieCompliance = CookieCompliance.RFC6265;
     private boolean _notifyRemoteAsyncErrors = true;
@@ -199,7 +198,7 @@ public class HttpConfiguration implements Dumpable
         return _responseHeaderSize;
     }
 
-    @ManagedAttribute("The maximum allowed size in bytes for an HTTP header field cache")
+    @ManagedAttribute("The maximum allowed size in Trie nodes for an HTTP header field cache")
     public int getHeaderCacheSize()
     {
         return _headerCacheSize;
@@ -423,7 +422,8 @@ public class HttpConfiguration implements Dumpable
     }
 
     /**
-     * @param headerCacheSize The size in bytes of the header field cache.
+     * @param headerCacheSize The size of the header field cache, in terms of unique characters branches
+     * in the lookup {@link Index.Mutable} and associated data structures.
      */
     public void setHeaderCacheSize(int headerCacheSize)
     {
@@ -503,7 +503,7 @@ public class HttpConfiguration implements Dumpable
      */
     public boolean isFormEncodedMethod(String method)
     {
-        return Boolean.TRUE.equals(_formEncodedMethods.get(method));
+        return _formEncodedMethods.get(method) != null;
     }
 
     /**
@@ -572,6 +572,16 @@ public class HttpConfiguration implements Dumpable
         _httpCompliance = httpCompliance;
     }
 
+    public UriCompliance getUriCompliance()
+    {
+        return _uriCompliance;
+    }
+
+    public void setUriCompliance(UriCompliance uriCompliance)
+    {
+        _uriCompliance = uriCompliance;
+    }
+
     /**
      * @return The CookieCompliance used for parsing request {@code Cookie} headers.
      * @see #getResponseCookieCompliance()
@@ -582,20 +592,20 @@ public class HttpConfiguration implements Dumpable
     }
 
     /**
+     * @param cookieCompliance The CookieCompliance to use for parsing request {@code Cookie} headers.
+     */
+    public void setRequestCookieCompliance(CookieCompliance cookieCompliance)
+    {
+        _requestCookieCompliance = cookieCompliance == null ? CookieCompliance.RFC6265 : cookieCompliance;
+    }
+
+    /**
      * @return The CookieCompliance used for generating response {@code Set-Cookie} headers
      * @see #getRequestCookieCompliance()
      */
     public CookieCompliance getResponseCookieCompliance()
     {
         return _responseCookieCompliance;
-    }
-
-    /**
-     * @param cookieCompliance The CookieCompliance to use for parsing request {@code Cookie} headers.
-     */
-    public void setRequestCookieCompliance(CookieCompliance cookieCompliance)
-    {
-        _requestCookieCompliance = cookieCompliance == null ? CookieCompliance.RFC6265 : cookieCompliance;
     }
 
     /**

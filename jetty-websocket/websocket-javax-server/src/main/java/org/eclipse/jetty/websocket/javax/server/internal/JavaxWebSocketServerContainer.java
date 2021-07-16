@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -37,13 +32,13 @@ import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.websocket.core.WebSocketComponents;
 import org.eclipse.jetty.websocket.core.client.WebSocketCoreClient;
+import org.eclipse.jetty.websocket.core.exception.InvalidSignatureException;
+import org.eclipse.jetty.websocket.core.internal.util.ReflectUtils;
+import org.eclipse.jetty.websocket.core.server.WebSocketMappings;
 import org.eclipse.jetty.websocket.core.server.WebSocketServerComponents;
 import org.eclipse.jetty.websocket.javax.client.internal.JavaxWebSocketClientContainer;
 import org.eclipse.jetty.websocket.javax.server.config.ContainerDefaultConfigurator;
 import org.eclipse.jetty.websocket.javax.server.config.JavaxWebSocketServletContainerInitializer;
-import org.eclipse.jetty.websocket.util.InvalidSignatureException;
-import org.eclipse.jetty.websocket.util.ReflectUtils;
-import org.eclipse.jetty.websocket.util.server.internal.WebSocketMapping;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,52 +59,66 @@ public class JavaxWebSocketServerContainer extends JavaxWebSocketClientContainer
         if (contextHandler.getServer() == null)
             throw new IllegalStateException("Server has not been set on the ServletContextHandler");
 
-        JavaxWebSocketServerContainer container = getContainer(servletContext);
-        if (container == null)
+        JavaxWebSocketServerContainer containerFromServletContext = getContainer(servletContext);
+        if (containerFromServletContext != null)
+            return containerFromServletContext;
+
+        Function<WebSocketComponents, WebSocketCoreClient> coreClientSupplier = (wsComponents) ->
         {
-            Function<WebSocketComponents, WebSocketCoreClient> coreClientSupplier = (wsComponents) ->
+            WebSocketCoreClient coreClient = (WebSocketCoreClient)servletContext.getAttribute(WebSocketCoreClient.WEBSOCKET_CORECLIENT_ATTRIBUTE);
+            if (coreClient == null)
             {
-                WebSocketCoreClient coreClient = (WebSocketCoreClient)servletContext.getAttribute(WebSocketCoreClient.WEBSOCKET_CORECLIENT_ATTRIBUTE);
-                if (coreClient == null)
-                {
-                    // Find Pre-Existing (Shared?) HttpClient and/or executor
-                    HttpClient httpClient = (HttpClient)servletContext.getAttribute(JavaxWebSocketServletContainerInitializer.HTTPCLIENT_ATTRIBUTE);
-                    if (httpClient == null)
-                        httpClient = (HttpClient)contextHandler.getServer().getAttribute(JavaxWebSocketServletContainerInitializer.HTTPCLIENT_ATTRIBUTE);
+                // Find Pre-Existing (Shared?) HttpClient and/or executor
+                HttpClient httpClient = (HttpClient)servletContext.getAttribute(JavaxWebSocketServletContainerInitializer.HTTPCLIENT_ATTRIBUTE);
+                if (httpClient == null)
+                    httpClient = (HttpClient)contextHandler.getServer().getAttribute(JavaxWebSocketServletContainerInitializer.HTTPCLIENT_ATTRIBUTE);
 
-                    Executor executor = httpClient == null ? null : httpClient.getExecutor();
-                    if (executor == null)
-                        executor = (Executor)servletContext.getAttribute("org.eclipse.jetty.server.Executor");
-                    if (executor == null)
-                        executor = contextHandler.getServer().getThreadPool();
+                Executor executor = httpClient == null ? null : httpClient.getExecutor();
+                if (executor == null)
+                    executor = (Executor)servletContext.getAttribute("org.eclipse.jetty.server.Executor");
+                if (executor == null)
+                    executor = contextHandler.getServer().getThreadPool();
 
-                    if (httpClient != null && httpClient.getExecutor() == null)
-                        httpClient.setExecutor(executor);
+                if (httpClient != null && httpClient.getExecutor() == null)
+                    httpClient.setExecutor(executor);
 
-                    // create the core client
-                    coreClient = new WebSocketCoreClient(httpClient, wsComponents);
-                    coreClient.getHttpClient().setName("Javax-WebSocketClient@" + Integer.toHexString(coreClient.getHttpClient().hashCode()));
-                    if (executor != null && httpClient == null)
-                        coreClient.getHttpClient().setExecutor(executor);
-                    servletContext.setAttribute(WebSocketCoreClient.WEBSOCKET_CORECLIENT_ATTRIBUTE, coreClient);
-                }
-                return coreClient;
-            };
+                // create the core client
+                coreClient = new WebSocketCoreClient(httpClient, wsComponents);
+                coreClient.getHttpClient().setName("Javax-WebSocketClient@" + Integer.toHexString(coreClient.getHttpClient().hashCode()));
+                if (executor != null && httpClient == null)
+                    coreClient.getHttpClient().setExecutor(executor);
+                servletContext.setAttribute(WebSocketCoreClient.WEBSOCKET_CORECLIENT_ATTRIBUTE, coreClient);
+            }
+            return coreClient;
+        };
 
-            // Create the Jetty ServerContainer implementation
-            container = new JavaxWebSocketServerContainer(
-                WebSocketMapping.ensureMapping(servletContext, WebSocketMapping.DEFAULT_KEY),
-                WebSocketServerComponents.ensureWebSocketComponents(servletContext),
-                coreClientSupplier);
-            contextHandler.addManaged(container);
-            contextHandler.addEventListener(container);
-        }
+        // Create the Jetty ServerContainer implementation
+        JavaxWebSocketServerContainer container = new JavaxWebSocketServerContainer(
+            WebSocketMappings.ensureMappings(servletContext),
+            WebSocketServerComponents.getWebSocketComponents(servletContext),
+            coreClientSupplier);
+
+        // Manage the lifecycle of the Container.
+        contextHandler.addManaged(container);
+        contextHandler.addEventListener(container);
+        contextHandler.addEventListener(new LifeCycle.Listener()
+        {
+            @Override
+            public void lifeCycleStopping(LifeCycle event)
+            {
+                servletContext.removeAttribute(JAVAX_WEBSOCKET_CONTAINER_ATTRIBUTE);
+                contextHandler.removeBean(container);
+                contextHandler.removeEventListener(container);
+                contextHandler.removeEventListener(this);
+            }
+        });
+
         // Store a reference to the ServerContainer per - javax.websocket spec 1.0 final - section 6.4: Programmatic Server Deployment
         servletContext.setAttribute(JAVAX_WEBSOCKET_CONTAINER_ATTRIBUTE, container);
         return container;
     }
 
-    private final WebSocketMapping webSocketMapping;
+    private final WebSocketMappings webSocketMappings;
     private final JavaxWebSocketServerFrameHandlerFactory frameHandlerFactory;
     private List<Class<?>> deferredEndpointClasses;
     private List<ServerEndpointConfig> deferredEndpointConfigs;
@@ -117,44 +126,32 @@ public class JavaxWebSocketServerContainer extends JavaxWebSocketClientContainer
     /**
      * Main entry point for {@link JavaxWebSocketServletContainerInitializer}.
      *
-     * @param webSocketMapping the {@link WebSocketMapping} that this container belongs to
+     * @param webSocketMappings the {@link WebSocketMappings} that this container belongs to
      */
-    public JavaxWebSocketServerContainer(WebSocketMapping webSocketMapping)
+    public JavaxWebSocketServerContainer(WebSocketMappings webSocketMappings)
     {
-        this(webSocketMapping, new WebSocketComponents());
+        this(webSocketMappings, new WebSocketComponents());
     }
 
-    public JavaxWebSocketServerContainer(WebSocketMapping webSocketMapping, WebSocketComponents components)
+    public JavaxWebSocketServerContainer(WebSocketMappings webSocketMappings, WebSocketComponents components)
     {
         super(components);
-        this.webSocketMapping = webSocketMapping;
+        this.webSocketMappings = webSocketMappings;
         this.frameHandlerFactory = new JavaxWebSocketServerFrameHandlerFactory(this);
     }
 
     /**
      * Main entry point for {@link JavaxWebSocketServletContainerInitializer}.
      *
-     * @param webSocketMapping the {@link WebSocketMapping} that this container belongs to
+     * @param webSocketMappings the {@link WebSocketMappings} that this container belongs to
      * @param components the {@link WebSocketComponents} instance to use
      * @param coreClientSupplier the supplier of the {@link WebSocketCoreClient} instance to use
      */
-    public JavaxWebSocketServerContainer(WebSocketMapping webSocketMapping, WebSocketComponents components, Function<WebSocketComponents, WebSocketCoreClient> coreClientSupplier)
+    public JavaxWebSocketServerContainer(WebSocketMappings webSocketMappings, WebSocketComponents components, Function<WebSocketComponents, WebSocketCoreClient> coreClientSupplier)
     {
         super(components, coreClientSupplier);
-        this.webSocketMapping = webSocketMapping;
+        this.webSocketMappings = webSocketMappings;
         this.frameHandlerFactory = new JavaxWebSocketServerFrameHandlerFactory(this);
-    }
-
-    @Override
-    public void lifeCycleStopping(LifeCycle context)
-    {
-        ContextHandler contextHandler = (ContextHandler)context;
-        JavaxWebSocketServerContainer container = contextHandler.getBean(JavaxWebSocketServerContainer.class);
-        if (container == this)
-        {
-            contextHandler.removeBean(container);
-            LifeCycle.stop(container);
-        }
     }
 
     @Override
@@ -237,6 +234,9 @@ public class JavaxWebSocketServerContainer extends JavaxWebSocketClientContainer
 
         if (isStarted() || isStarting())
         {
+            // Decorate the provided Configurator.
+            components.getObjectFactory().decorate(providedConfig.getConfigurator());
+
             // If we have annotations merge the annotated ServerEndpointConfig with the provided one.
             Class<?> endpointClass = providedConfig.getEndpointClass();
             ServerEndpoint anno = endpointClass.getAnnotation(ServerEndpoint.class);
@@ -264,7 +264,7 @@ public class JavaxWebSocketServerContainer extends JavaxWebSocketClientContainer
             frameHandlerFactory.getMetadata(config.getEndpointClass(), config);
             JavaxWebSocketCreator creator = new JavaxWebSocketCreator(this, config, getExtensionRegistry());
             PathSpec pathSpec = new UriTemplatePathSpec(config.getPath());
-            webSocketMapping.addMapping(pathSpec, creator, frameHandlerFactory, defaultCustomizer);
+            webSocketMappings.addMapping(pathSpec, creator, frameHandlerFactory, defaultCustomizer);
         }
         catch (InvalidSignatureException e)
         {
@@ -300,5 +300,17 @@ public class JavaxWebSocketServerContainer extends JavaxWebSocketClientContainer
             }
             deferredEndpointConfigs.clear();
         }
+    }
+
+    @Override
+    protected void doClientStart()
+    {
+        // Do nothing.
+    }
+
+    @Override
+    protected void doClientStop()
+    {
+        // Do nothing.
     }
 }

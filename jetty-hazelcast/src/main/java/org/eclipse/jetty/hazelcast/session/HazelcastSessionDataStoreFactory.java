@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -26,6 +21,7 @@ import com.hazelcast.client.config.ClientConfig;
 import com.hazelcast.client.config.XmlClientConfigBuilder;
 import com.hazelcast.config.Config;
 import com.hazelcast.config.MapConfig;
+import com.hazelcast.config.SerializationConfig;
 import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.config.XmlConfigBuilder;
 import com.hazelcast.core.Hazelcast;
@@ -36,6 +32,8 @@ import org.eclipse.jetty.server.session.SessionDataStore;
 import org.eclipse.jetty.server.session.SessionDataStoreFactory;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.util.StringUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Factory to construct {@link HazelcastSessionDataStore}
@@ -44,7 +42,8 @@ public class HazelcastSessionDataStoreFactory
     extends AbstractSessionDataStoreFactory
     implements SessionDataStoreFactory
 {
-
+    private static final Logger LOG = LoggerFactory.getLogger(HazelcastSessionDataStoreFactory.class);
+    
     private String hazelcastInstanceName = "JETTY_DISTRIBUTED_SESSION_INSTANCE";
 
     private boolean onlyClient;
@@ -83,9 +82,10 @@ public class HazelcastSessionDataStoreFactory
             {
                 if (onlyClient)
                 {
+                    ClientConfig config;
                     if (StringUtil.isEmpty(configurationLocation))
                     {
-                        ClientConfig config = new ClientConfig();
+                        config = new ClientConfig();
 
                         if (addresses != null && !addresses.isEmpty())
                         {
@@ -96,20 +96,22 @@ public class HazelcastSessionDataStoreFactory
                             .setImplementation(new SessionDataSerializer())
                             .setTypeClass(SessionData.class);
                         config.getSerializationConfig().addSerializerConfig(sc);
-                        hazelcastInstance = HazelcastClient.newHazelcastClient(config);
                     }
                     else
                     {
-                        hazelcastInstance = HazelcastClient.newHazelcastClient(
-                            new XmlClientConfigBuilder(configurationLocation).build());
+                        config = new XmlClientConfigBuilder(configurationLocation).build();
+                        if (config.getSerializationConfig().getSerializerConfigs().stream().noneMatch(s ->
+                            SessionData.class.getName().equals(s.getTypeClassName()) && s.getImplementation() instanceof SessionDataSerializer))
+                            LOG.warn("Hazelcast xml config is missing org.eclipse.jetty.hazelcast.session.SessionDataSerializer - sessions may not serialize correctly");
                     }
+                    
+                    hazelcastInstance = HazelcastClient.newHazelcastClient(config);
                 }
                 else
                 {
                     Config config;
                     if (StringUtil.isEmpty(configurationLocation))
                     {
-
                         SerializerConfig sc = new SerializerConfig()
                             .setImplementation(new SessionDataSerializer())
                             .setTypeClass(SessionData.class);
@@ -131,6 +133,9 @@ public class HazelcastSessionDataStoreFactory
                     else
                     {
                         config = new XmlConfigBuilder(configurationLocation).build();
+                        if (config.getSerializationConfig().getSerializerConfigs().stream().noneMatch(s ->
+                            SessionData.class.getName().equals(s.getTypeClassName()) && s.getImplementation() instanceof SessionDataSerializer))
+                            LOG.warn("Hazelcast xml config is missing org.eclipse.jetty.hazelcast.session.SessionDataSerializer - sessions may not serialize correctly");
                     }
                     config.setInstanceName(hazelcastInstanceName);
                     hazelcastInstance = Hazelcast.getOrCreateHazelcastInstance(config);

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -64,7 +59,6 @@ import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.annotation.Name;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
-import org.eclipse.jetty.util.thread.AutoLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -337,6 +331,22 @@ public class XmlConfiguration
     {
     }
 
+    /**
+     * Utility method to resolve a provided path against a directory.
+     *
+     * @param dir the directory (should be a directory reference, does not have to exist)
+     * @param destPath the destination path (can be relative or absolute, syntax depends on OS + FileSystem in use,
+     * and does not need to exist)
+     * @return String to resolved and normalized path, or null if dir or destPath is empty.
+     */
+    public static String resolvePath(String dir, String destPath)
+    {
+        if (StringUtil.isEmpty(dir) || StringUtil.isEmpty(destPath))
+            return null;
+
+        return Paths.get(dir).resolve(destPath).normalize().toString();
+    }
+
     private static class JettyXmlConfiguration implements ConfigurationProcessor
     {
         XmlParser.Node _root;
@@ -505,25 +515,11 @@ public class XmlConfiguration
          */
         private void set(Object obj, XmlParser.Node node) throws Exception
         {
-            String attr = node.getAttribute("name");
+            String name = node.getAttribute("name");
+            String setter = "set" + name.substring(0, 1).toUpperCase(Locale.ENGLISH) + name.substring(1);
             String id = node.getAttribute("id");
             String property = node.getAttribute("property");
             String propertyValue = null;
-            // Look for a property value
-            if (property != null)
-            {
-                Map<String, String> properties = _configuration.getProperties();
-                propertyValue = properties.get(property);
-                // If no property value, then do not set
-                if (propertyValue == null)
-                    return;
-            }
-
-            String name = "set" + attr.substring(0, 1).toUpperCase(Locale.ENGLISH) + attr.substring(1);
-            Object value = value(obj, node);
-            if (value == null)
-                value = propertyValue;
-            Object[] arg = {value};
 
             Class<?> oClass = nodeClass(node);
             if (oClass != null)
@@ -531,12 +527,38 @@ public class XmlConfiguration
             else
                 oClass = obj.getClass();
 
+            // Look for a property value
+            if (property != null)
+            {
+                Map<String, String> properties = _configuration.getProperties();
+                propertyValue = properties.get(property);
+                // If no property value, then do not set
+                if (propertyValue == null)
+                {
+                    // check that there is at least one setter or field that could have matched
+                    if (Arrays.stream(oClass.getMethods()).noneMatch(m -> m.getName().equals(setter)) &&
+                        Arrays.stream(oClass.getFields()).filter(f -> Modifier.isPublic(f.getModifiers())).noneMatch(f -> f.getName().equals(name)))
+                    {
+                        NoSuchMethodException e = new NoSuchMethodException(String.format("No method '%s' on %s", setter, oClass.getName()));
+                        e.addSuppressed(new NoSuchFieldException(String.format("No field '%s' on %s", name, oClass.getName())));
+                        throw e;
+                    }
+                    // otherwise it is a noop
+                    return;
+                }
+            }
+
+            Object value = value(obj, node);
+            if (value == null)
+                value = propertyValue;
+            Object[] arg = {value};
+
             Class<?>[] vClass = {Object.class};
             if (value != null)
                 vClass[0] = value.getClass();
 
             if (LOG.isDebugEnabled())
-                LOG.debug("XML {}.{} ({})", (obj != null ? obj.toString() : oClass.getName()), name, value);
+                LOG.debug("XML {}.{} ({})", (obj != null ? obj.toString() : oClass.getName()), setter, value);
 
             MultiException me = new MultiException();
 
@@ -547,7 +569,7 @@ public class XmlConfiguration
                 // Try for trivial match
                 try
                 {
-                    Method set = oClass.getMethod(name, vClass);
+                    Method set = oClass.getMethod(setter, vClass);
                     invokeMethod(set, obj, arg);
                     return;
                 }
@@ -562,7 +584,7 @@ public class XmlConfiguration
                 {
                     Field type = vClass[0].getField("TYPE");
                     vClass[0] = (Class<?>)type.get(null);
-                    Method set = oClass.getMethod(name, vClass);
+                    Method set = oClass.getMethod(setter, vClass);
                     invokeMethod(set, obj, arg);
                     return;
                 }
@@ -575,7 +597,7 @@ public class XmlConfiguration
                 // Try a field
                 try
                 {
-                    Field field = oClass.getField(attr);
+                    Field field = oClass.getField(name);
                     if (Modifier.isPublic(field.getModifiers()))
                     {
                         try
@@ -612,18 +634,18 @@ public class XmlConfiguration
                 // Search for a match by trying all the set methods
                 Method[] sets = oClass.getMethods();
                 Method set = null;
-                for (Method setter : sets)
+                for (Method s : sets)
                 {
-                    if (setter.getParameterCount() != 1)
+                    if (s.getParameterCount() != 1)
                         continue;
-                    Class<?>[] paramTypes = setter.getParameterTypes();
-                    if (name.equals(setter.getName()))
+                    Class<?>[] paramTypes = s.getParameterTypes();
+                    if (setter.equals(s.getName()))
                     {
                         types = types == null ? paramTypes[0].getName() : (types + "," + paramTypes[0].getName());
                         // lets try it
                         try
                         {
-                            set = setter;
+                            set = s;
                             invokeMethod(set, obj, arg);
                             return;
                         }
@@ -640,7 +662,7 @@ public class XmlConfiguration
                                 if (paramTypes[0].isAssignableFrom(c))
                                 {
                                     setValue = convertArrayToCollection(value, c);
-                                    invokeMethod(setter, obj, setValue);
+                                    invokeMethod(s, obj, setValue);
                                     return;
                                 }
                             }
@@ -693,7 +715,7 @@ public class XmlConfiguration
             }
 
             // No Joy
-            String message = oClass + "." + name + "(" + vClass[0] + ")";
+            String message = oClass + "." + setter + "(" + vClass[0] + ")";
             if (types != null)
                 message += ". Found setters for " + types;
             NoSuchMethodException failure = new NoSuchMethodException(message);
@@ -799,20 +821,33 @@ public class XmlConfiguration
          */
         private Object get(Object obj, XmlParser.Node node) throws Exception
         {
-            Class<?> oClass = nodeClass(node);
-            if (oClass != null)
-                obj = null;
-            else
-                oClass = obj.getClass();
+            AttrOrElementNode aoeNode = new AttrOrElementNode(obj, node, "Id", "Name", "Class");
+            String id = aoeNode.getString("Id");
+            String name = aoeNode.getString("Name");
+            String clazz = aoeNode.getString("Class");
 
-            String name = node.getAttribute("name");
-            String id = node.getAttribute("id");
+            Class<?> oClass;
+            if (clazz != null)
+            {
+                // static call
+                oClass = Loader.loadClass(clazz);
+                obj = null;
+            }
+            else if (obj != null)
+            {
+                oClass = obj.getClass();
+            }
+            else
+            {
+                throw new IllegalArgumentException(node.toString());
+            }
+
             if (LOG.isDebugEnabled())
                 LOG.debug("XML get {}", name);
 
             try
             {
-                // Handle getClass explicitly
+                // Handle getClass() explicitly.
                 if ("class".equalsIgnoreCase(name))
                 {
                     obj = oClass;
@@ -825,20 +860,27 @@ public class XmlConfiguration
                 }
                 if (id != null)
                     _configuration.getIdMap().put(id, obj);
-                configure(obj, node, 0);
+                configure(obj, node, aoeNode.getNext());
             }
-            catch (NoSuchMethodException nsme)
+            catch (NoSuchMethodException nsme1)
             {
                 try
+                {
+                    // Try calling a isXxx() method.
+                    Method method = oClass.getMethod("is" + name.substring(0, 1).toUpperCase(Locale.ENGLISH) + name.substring(1));
+                    obj = invokeMethod(method, obj);
+                    if (id != null)
+                        _configuration.getIdMap().put(id, obj);
+                    configure(obj, node, aoeNode.getNext());
+                }
+                catch (NoSuchMethodException nsme2)
                 {
                     // Try the field.
                     Field field = oClass.getField(name);
                     obj = getField(field, obj);
-                    configure(obj, node, 0);
-                }
-                catch (NoSuchFieldException nsfe)
-                {
-                    throw nsme;
+                    if (id != null)
+                        _configuration.getIdMap().put(id, obj);
+                    configure(obj, node, aoeNode.getNext());
                 }
             }
             return obj;
@@ -874,7 +916,9 @@ public class XmlConfiguration
                 oClass = obj.getClass();
             }
             else
+            {
                 throw new IllegalArgumentException(node.toString());
+            }
 
             if (LOG.isDebugEnabled())
                 LOG.debug("XML call {}", name);
@@ -1071,11 +1115,16 @@ public class XmlConfiguration
          */
         private Object newMap(Object obj, XmlParser.Node node) throws Exception
         {
-            AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Entry");
+            AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Entry", "Class");
             String id = aoeNode.getString("Id");
             List<XmlParser.Node> entries = aoeNode.getNodes("Entry");
+            String clazz = aoeNode.getString("Class");
+            if (clazz == null)
+                clazz = HashMap.class.getName();
+            @SuppressWarnings("unchecked")
+            Class<? extends Map<Object, Object>> oClass = Loader.loadClass(clazz);
 
-            Map<Object, Object> map = new HashMap<>();
+            Map<Object, Object> map = oClass.getConstructor().newInstance();
             if (id != null)
                 _configuration.getIdMap().put(id, map);
 
@@ -1790,10 +1839,9 @@ public class XmlConfiguration
                         if (properties.size() > 0)
                         {
                             Map<String, String> props = new HashMap<>();
-                            for (Object key : properties.keySet())
-                            {
-                                props.put(key.toString(), String.valueOf(properties.get(key)));
-                            }
+                            properties.entrySet().stream()
+                                .forEach(objectObjectEntry -> props.put(objectObjectEntry.getKey().toString(),
+                                                                        String.valueOf(objectObjectEntry.getValue())));
                             configuration.getProperties().putAll(props);
                         }
 
@@ -1871,6 +1919,7 @@ public class XmlConfiguration
             redirectEntity("http://jetty.mortbay.org/configure.dtd", config93);
             redirectEntity("http://jetty.mortbay.org/configure_9_3.dtd", config93);
             redirectEntity("http://jetty.eclipse.org/configure.dtd", config93);
+            redirectEntity("https://jetty.eclipse.org/configure.dtd", config93);
             redirectEntity("http://www.eclipse.org/jetty/configure.dtd", config93);
             redirectEntity("https://www.eclipse.org/jetty/configure.dtd", config93);
             redirectEntity("http://www.eclipse.org/jetty/configure_9_3.dtd", config93);

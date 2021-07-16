@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -28,8 +23,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 
-import org.eclipse.jetty.util.ArrayTernaryTrie;
-import org.eclipse.jetty.util.Trie;
+import org.eclipse.jetty.util.Index;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.Dumpable;
@@ -49,9 +43,18 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
     private static final Logger LOG = LoggerFactory.getLogger(PathMappings.class);
     private final Set<MappedResource<E>> _mappings = new TreeSet<>(Comparator.comparing(MappedResource::getPathSpec));
 
-    private Trie<MappedResource<E>> _exactMap = new ArrayTernaryTrie<>(false);
-    private Trie<MappedResource<E>> _prefixMap = new ArrayTernaryTrie<>(false);
-    private Trie<MappedResource<E>> _suffixMap = new ArrayTernaryTrie<>(false);
+    private final Index.Mutable<MappedResource<E>> _exactMap = new Index.Builder<MappedResource<E>>()
+        .caseSensitive(true)
+        .mutable()
+        .build();
+    private final Index.Mutable<MappedResource<E>> _prefixMap = new Index.Builder<MappedResource<E>>()
+        .caseSensitive(true)
+        .mutable()
+        .build();
+    private final Index.Mutable<MappedResource<E>> _suffixMap = new Index.Builder<MappedResource<E>>()
+        .caseSensitive(true)
+        .mutable()
+        .build();
 
     @Override
     public String dump()
@@ -136,10 +139,9 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
                     case EXACT:
                     {
                         int i = path.length();
-                        final Trie<MappedResource<E>> exact_map = _exactMap;
                         while (i >= 0)
                         {
-                            MappedResource<E> candidate = exact_map.getBest(path, 0, i);
+                            MappedResource<E> candidate = _exactMap.getBest(path, 0, i);
                             if (candidate == null)
                                 break;
                             if (candidate.getPathSpec().matches(path))
@@ -152,10 +154,9 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
                     case PREFIX_GLOB:
                     {
                         int i = path.length();
-                        final Trie<MappedResource<E>> prefix_map = _prefixMap;
                         while (i >= 0)
                         {
-                            MappedResource<E> candidate = prefix_map.getBest(path, 0, i);
+                            MappedResource<E> candidate = _prefixMap.getBest(path, 0, i);
                             if (candidate == null)
                                 break;
                             if (candidate.getPathSpec().matches(path))
@@ -168,10 +169,9 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
                     case SUFFIX_GLOB:
                     {
                         int i = 0;
-                        final Trie<MappedResource<E>> suffix_map = _suffixMap;
                         while ((i = path.indexOf('.', i + 1)) > 0)
                         {
-                            MappedResource<E> candidate = suffix_map.get(path, i + 1, path.length() - i - 1);
+                            MappedResource<E> candidate = _suffixMap.get(path, i + 1, path.length() - i - 1);
                             if (candidate != null && candidate.getPathSpec().matches(path))
                                 return candidate;
                         }
@@ -230,24 +230,18 @@ public class PathMappings<E> implements Iterable<MappedResource<E>>, Dumpable
         {
             case EXACT:
                 String exact = pathSpec.getPrefix();
-                while (exact != null && !_exactMap.put(exact, entry))
-                {
-                    _exactMap = new ArrayTernaryTrie<>((ArrayTernaryTrie<MappedResource<E>>)_exactMap, 1.5);
-                }
+                if (exact != null)
+                    _exactMap.put(exact, entry);
                 break;
             case PREFIX_GLOB:
                 String prefix = pathSpec.getPrefix();
-                while (prefix != null && !_prefixMap.put(prefix, entry))
-                {
-                    _prefixMap = new ArrayTernaryTrie<>((ArrayTernaryTrie<MappedResource<E>>)_prefixMap, 1.5);
-                }
+                if (prefix != null)
+                    _prefixMap.put(prefix, entry);
                 break;
             case SUFFIX_GLOB:
                 String suffix = pathSpec.getSuffix();
-                while (suffix != null && !_suffixMap.put(suffix, entry))
-                {
-                    _suffixMap = new ArrayTernaryTrie<>((ArrayTernaryTrie<MappedResource<E>>)_prefixMap, 1.5);
-                }
+                if (suffix != null)
+                    _suffixMap.put(suffix, entry);
                 break;
             default:
         }

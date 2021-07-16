@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,13 +15,13 @@ package org.eclipse.jetty.start;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URLConnection;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -132,34 +127,25 @@ public abstract class FileInitializer
 
         StartLog.info("download %s to %s", uri, _basehome.toShortForm(destination));
 
-        HttpURLConnection http = (HttpURLConnection)uri.toURL().openConnection();
-        http.setInstanceFollowRedirects(true);
-        http.setAllowUserInteraction(false);
+        URLConnection connection = uri.toURL().openConnection();
 
-        int status = http.getResponseCode();
-
-        if (status != HttpURLConnection.HTTP_OK)
+        if (connection instanceof HttpURLConnection)
         {
-            throw new IOException("URL GET Failure [" + status + "/" + http.getResponseMessage() + "] on " + uri);
+            HttpURLConnection http = (HttpURLConnection)uri.toURL().openConnection();
+            http.setInstanceFollowRedirects(true);
+            http.setAllowUserInteraction(false);
+
+            int status = http.getResponseCode();
+
+            if (status != HttpURLConnection.HTTP_OK)
+            {
+                throw new IOException("URL GET Failure [" + status + "/" + http.getResponseMessage() + "] on " + uri);
+            }
         }
 
-        byte[] buf = new byte[8192];
-        try (InputStream in = http.getInputStream();
-             OutputStream out = Files.newOutputStream(destination, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))
+        try (InputStream in = connection.getInputStream())
         {
-            while (true)
-            {
-                int len = in.read(buf);
-
-                if (len > 0)
-                {
-                    out.write(buf, 0, len);
-                }
-                if (len < 0)
-                {
-                    break;
-                }
-            }
+            Files.copy(in, destination, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

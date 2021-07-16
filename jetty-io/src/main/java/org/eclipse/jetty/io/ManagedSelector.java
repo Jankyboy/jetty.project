@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -45,13 +40,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.annotation.ManagedAttribute;
+import org.eclipse.jetty.util.annotation.ManagedOperation;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.component.DumpableCollection;
+import org.eclipse.jetty.util.statistic.SampleStatistic;
 import org.eclipse.jetty.util.thread.AutoLock;
 import org.eclipse.jetty.util.thread.ExecutionStrategy;
 import org.eclipse.jetty.util.thread.Scheduler;
-import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
+import org.eclipse.jetty.util.thread.strategy.AdaptiveExecutionStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,6 +87,7 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
     private Selector _selector;
     private Deque<SelectorUpdate> _updates = new ArrayDeque<>();
     private Deque<SelectorUpdate> _updateable = new ArrayDeque<>();
+    private final SampleStatistic _keyStats = new SampleStatistic();
 
     public ManagedSelector(SelectorManager selectorManager, int id)
     {
@@ -96,7 +95,7 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         _id = id;
         SelectorProducer producer = new SelectorProducer();
         Executor executor = selectorManager.getExecutor();
-        _strategy = new EatWhatYouKill(producer, executor);
+        _strategy = new AdaptiveExecutionStrategy(producer, executor);
         addBean(_strategy, true);
     }
 
@@ -144,6 +143,36 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         }
 
         super.doStop();
+    }
+
+    @ManagedAttribute(value = "Total number of keys", readonly = true)
+    public int getTotalKeys()
+    {
+        return _selector.keys().size();
+    }
+
+    @ManagedAttribute(value = "Average number of selected keys", readonly = true)
+    public double getAverageSelectedKeys()
+    {
+        return _keyStats.getMean();
+    }
+
+    @ManagedAttribute(value = "Maximum number of selected keys", readonly = true)
+    public long getMaxSelectedKeys()
+    {
+        return _keyStats.getMax();
+    }
+
+    @ManagedAttribute(value = "Total number of select() calls", readonly = true)
+    public long getSelectCount()
+    {
+        return _keyStats.getCount();
+    }
+
+    @ManagedOperation(value = "Resets the statistics", impact = "ACTION")
+    public void resetStats()
+    {
+        _keyStats.reset();
     }
 
     protected int nioSelect(Selector selector, boolean now) throws IOException
@@ -589,9 +618,12 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
                         }
 
                         _keys = selector.selectedKeys();
-                        _cursor = _keys.isEmpty() ? Collections.emptyIterator() : _keys.iterator();
+                        int selectedKeys = _keys.size();
+                        if (selectedKeys > 0)
+                            _keyStats.record(selectedKeys);
+                        _cursor = selectedKeys > 0 ? _keys.iterator() : Collections.emptyIterator();
                         if (LOG.isDebugEnabled())
-                            LOG.debug("Selector {} processing {} keys, {} updates", selector, _keys.size(), updates);
+                            LOG.debug("Selector {} processing {} keys, {} updates", selector, selectedKeys, updates);
 
                         return true;
                     }

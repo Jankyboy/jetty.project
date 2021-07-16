@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -35,6 +30,7 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 
+import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.component.DumpableCollection;
@@ -200,11 +196,24 @@ public class FilterHolder extends Holder<Filter>
         return _filter;
     }
 
-    public void doFilter(ServletRequest request, ServletResponse response,
-                         FilterChain chain)
-        throws IOException, ServletException
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException
     {
-        _filter.doFilter(request, response, chain);
+        if (isAsyncSupported() || !request.isAsyncSupported())
+            getFilter().doFilter(request, response, chain);
+        else
+        {
+            Request baseRequest = Request.getBaseRequest(request);
+            Objects.requireNonNull(baseRequest);
+            try
+            {
+                baseRequest.setAsyncSupported(false, this);
+                getFilter().doFilter(request, response, chain);
+            }
+            finally
+            {
+                baseRequest.setAsyncSupported(true, null);
+            }
+        }
     }
 
     @Override
@@ -222,7 +231,8 @@ public class FilterHolder extends Holder<Filter>
     @Override
     public String toString()
     {
-        return String.format("%s@%x==%s,inst=%b,async=%b", getName(), hashCode(), getClassName(), _filter != null, isAsyncSupported());
+        return String.format("%s==%s@%x{inst=%b,async=%b,src=%s}",
+            getName(), getClassName(), hashCode(), _filter != null, isAsyncSupported(), getSource());
     }
 
     public FilterRegistration.Dynamic getRegistration()

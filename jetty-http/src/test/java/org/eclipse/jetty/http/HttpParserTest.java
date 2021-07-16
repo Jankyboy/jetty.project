@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,6 +17,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.eclipse.jetty.http.HttpParser.State;
 import org.eclipse.jetty.logging.StacklessLogging;
@@ -31,6 +27,8 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.eclipse.jetty.http.HttpCompliance.Violation.CASE_INSENSITIVE_METHOD;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.CASE_SENSITIVE_FIELD_NAME;
@@ -39,6 +37,7 @@ import static org.eclipse.jetty.http.HttpCompliance.Violation.TRANSFER_ENCODING_
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,12 +80,20 @@ public class HttpParserTest
     @Test
     public void testHttpMethod()
     {
-        assertNull(HttpMethod.lookAheadGet(BufferUtil.toBuffer("Wibble ")));
-        assertNull(HttpMethod.lookAheadGet(BufferUtil.toBuffer("GET")));
-        assertNull(HttpMethod.lookAheadGet(BufferUtil.toBuffer("MO")));
+        for (HttpMethod m : HttpMethod.values())
+        {
+            assertNull(HttpMethod.lookAheadGet(BufferUtil.toBuffer(m.asString().substring(0, 2))));
+            assertNull(HttpMethod.lookAheadGet(BufferUtil.toBuffer(m.asString())));
+            assertNull(HttpMethod.lookAheadGet(BufferUtil.toBuffer(m.asString() + "FOO")));
+            assertEquals(m, HttpMethod.lookAheadGet(BufferUtil.toBuffer(m.asString() + " ")));
+            assertEquals(m, HttpMethod.lookAheadGet(BufferUtil.toBuffer(m.asString() + " /foo/bar")));
 
-        assertEquals(HttpMethod.GET, HttpMethod.lookAheadGet(BufferUtil.toBuffer("GET ")));
-        assertEquals(HttpMethod.MOVE, HttpMethod.lookAheadGet(BufferUtil.toBuffer("MOVE ")));
+            assertNull(HttpMethod.lookAheadGet(m.asString().substring(0, 2).getBytes(), 0, 2));
+            assertNull(HttpMethod.lookAheadGet(m.asString().getBytes(), 0, m.asString().length()));
+            assertNull(HttpMethod.lookAheadGet((m.asString() + "FOO").getBytes(), 0, m.asString().length() + 3));
+            assertEquals(m, HttpMethod.lookAheadGet(("\n" + m.asString() + " ").getBytes(), 1, m.asString().length() + 2));
+            assertEquals(m, HttpMethod.lookAheadGet(("\n" + m.asString() + " /foo").getBytes(), 1, m.asString().length() + 6));
+        }
 
         ByteBuffer b = BufferUtil.allocateDirect(128);
         BufferUtil.append(b, BufferUtil.toBuffer("GET"));
@@ -94,6 +101,15 @@ public class HttpParserTest
 
         BufferUtil.append(b, BufferUtil.toBuffer(" "));
         assertEquals(HttpMethod.GET, HttpMethod.lookAheadGet(b));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "POST", "VERSION-CONTROL"})
+    public void httpMethodNameTest(String methodName)
+    {
+        HttpMethod method = HttpMethod.fromString(methodName);
+        assertNotNull(method, "Method should have been found: " + methodName);
+        assertEquals(methodName.toUpperCase(Locale.US), method.toString());
     }
 
     @Test
@@ -2955,5 +2971,83 @@ public class HttpParserTest
         {
             _complianceViolation.add(violation);
         }
+    }
+
+    @Test
+    public void testHttpHeaderValueParseCsv()
+    {
+        final List<HttpHeaderValue> list = new ArrayList<>();
+        final List<String> unknowns = new ArrayList<>();
+
+        assertTrue(HttpHeaderValue.parseCsvIndex("", list::add, unknowns::add));
+        assertThat(list, empty());
+        assertThat(unknowns, empty());
+
+        assertTrue(HttpHeaderValue.parseCsvIndex(" ", list::add, unknowns::add));
+        assertThat(list, empty());
+        assertThat(unknowns, empty());
+
+        assertTrue(HttpHeaderValue.parseCsvIndex(",", list::add, unknowns::add));
+        assertThat(list, empty());
+        assertThat(unknowns, empty());
+
+        assertTrue(HttpHeaderValue.parseCsvIndex(",,", list::add, unknowns::add));
+        assertThat(list, empty());
+        assertThat(unknowns, empty());
+
+        assertTrue(HttpHeaderValue.parseCsvIndex(" , , ", list::add, unknowns::add));
+        assertThat(list, empty());
+        assertThat(unknowns, empty());
+
+        list.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex("close", list::add));
+        assertThat(list, contains(HttpHeaderValue.CLOSE));
+
+        list.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex(" close ", list::add));
+        assertThat(list, contains(HttpHeaderValue.CLOSE));
+
+        list.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex(",close,", list::add));
+        assertThat(list, contains(HttpHeaderValue.CLOSE));
+
+        list.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex(" , close , ", list::add));
+        assertThat(list, contains(HttpHeaderValue.CLOSE));
+
+        list.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex(" close,GZIP, chunked    , Keep-Alive   ", list::add));
+        assertThat(list, contains(HttpHeaderValue.CLOSE, HttpHeaderValue.GZIP, HttpHeaderValue.CHUNKED, HttpHeaderValue.KEEP_ALIVE));
+
+        list.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex(" close,GZIP, chunked    , Keep-Alive   ", t ->
+        {
+            if (t.toString().startsWith("c"))
+                list.add(t);
+            return true;
+        }));
+        assertThat(list, contains(HttpHeaderValue.CLOSE, HttpHeaderValue.CHUNKED));
+
+        list.clear();
+        assertFalse(HttpHeaderValue.parseCsvIndex(" close,GZIP, chunked    , Keep-Alive   ", t ->
+        {
+            if (HttpHeaderValue.CHUNKED == t)
+                return false;
+            list.add(t);
+            return true;
+        }));
+        assertThat(list, contains(HttpHeaderValue.CLOSE, HttpHeaderValue.GZIP));
+
+        list.clear();
+        unknowns.clear();
+        assertTrue(HttpHeaderValue.parseCsvIndex("closed,close, unknown , bytes", list::add, unknowns::add));
+        assertThat(list, contains(HttpHeaderValue.CLOSE, HttpHeaderValue.BYTES));
+        assertThat(unknowns, contains("closed", "unknown"));
+
+        list.clear();
+        unknowns.clear();
+        assertFalse(HttpHeaderValue.parseCsvIndex("close, unknown , bytes", list::add, s -> false));
+        assertThat(list, contains(HttpHeaderValue.CLOSE));
+        assertThat(unknowns, empty());
     }
 }

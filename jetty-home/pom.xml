@@ -3,7 +3,7 @@
   <parent>
     <artifactId>jetty-project</artifactId>
     <groupId>org.eclipse.jetty</groupId>
-    <version>10.0.0-SNAPSHOT</version>
+    <version>10.0.7-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-home</artifactId>
@@ -13,7 +13,8 @@
   <properties>
     <assembly-directory>${basedir}/target/jetty-home</assembly-directory>
     <source-assembly-directory>${basedir}/target/jetty-home-sources</source-assembly-directory>
-    <jetty-setuid-version>1.0.3</jetty-setuid-version>
+    <jetty-setuid-version>1.0.4</jetty-setuid-version>
+    <spotbugs.skip>true</spotbugs.skip>
   </properties>
 
   <build>
@@ -126,7 +127,7 @@
                 org.eclipse.jetty.orbit,org.eclipse.jetty.http2,org.eclipse.jetty.websocket,org.eclipse.jetty.fcgi,org.eclipse.jetty.toolchain,org.apache.taglibs
               </excludeGroupIds>
               <excludeArtifactIds>
-                jetty-all,apache-jsp,apache-jstl,jetty-start,jetty-spring,jetty-slf4j-impl
+                apache-jsp,apache-jstl,jetty-start,jetty-slf4j-impl
               </excludeArtifactIds>
               <includeTypes>jar</includeTypes>
               <outputDirectory>${assembly-directory}/lib</outputDirectory>
@@ -144,7 +145,7 @@
                 org.eclipse.jetty.orbit,org.eclipse.jetty.http2,org.eclipse.jetty.websocket,org.eclipse.jetty.fcgi,org.eclipse.jetty.toolchain,org.apache.taglibs
               </excludeGroupIds>
               <excludeArtifactIds>
-                jetty-all,apache-jsp,apache-jstl,jetty-start,jetty-spring
+                apache-jsp,apache-jstl,jetty-start
               </excludeArtifactIds>
               <includeTypes>jar</includeTypes>
               <classifier>sources</classifier>
@@ -280,33 +281,6 @@
               <includeTypes>jar</includeTypes>
               <classifier>sources</classifier>
               <outputDirectory>${source-assembly-directory}/lib/fcgi</outputDirectory>
-            </configuration>
-          </execution>
-          <execution>
-            <id>copy-lib-spring-deps</id>
-            <phase>generate-resources</phase>
-            <goals>
-              <goal>copy-dependencies</goal>
-            </goals>
-            <configuration>
-              <includeGroupIds>org.eclipse.jetty</includeGroupIds>
-              <includeArtifactIds>jetty-spring</includeArtifactIds>
-              <includeTypes>jar</includeTypes>
-              <outputDirectory>${assembly-directory}/lib/spring</outputDirectory>
-            </configuration>
-          </execution>
-          <execution>
-            <id>copy-lib-spring-src-deps</id>
-            <phase>generate-resources</phase>
-            <goals>
-              <goal>copy-dependencies</goal>
-            </goals>
-            <configuration>
-              <includeGroupIds>org.eclipse.jetty</includeGroupIds>
-              <includeArtifactIds>jetty-spring</includeArtifactIds>
-              <includeTypes>jar</includeTypes>
-              <classifier>sources</classifier>
-              <outputDirectory>${source-assembly-directory}/lib/spring</outputDirectory>
             </configuration>
           </execution>
           <execution>
@@ -464,11 +438,13 @@
               <goal>unpack-dependencies</goal>
             </goals>
             <configuration>
-              <includeGroupIds>org.eclipse.jetty,org.eclipse.jetty.websocket</includeGroupIds>
+              <includeGroupIds>
+                org.eclipse.jetty, org.eclipse.jetty.websocket, org.eclipse.jetty.demos
+              </includeGroupIds>
               <excludeArtifactIds>infinispan-embedded,infinispan-remote,jetty-test-helper,alpn-api,javax.security.auth.message,javax.activation</excludeArtifactIds>
               <classifier>config</classifier>
               <failOnMissingClassifierArtifact>false</failOnMissingClassifierArtifact>
-              <excludes>META-INF/**</excludes>
+              <excludes>META-INF/**,webapps/**,start.d/**,start.ini</excludes>
               <outputDirectory>${assembly-directory}</outputDirectory>
             </configuration>
           </execution>
@@ -495,7 +471,6 @@
                   <type>jar</type>
                 </artifactItem>
               </artifactItems>
-              <failOnMissingClassifierArtifact>true</failOnMissingClassifierArtifact>
               <excludes>META-INF/**</excludes>
               <outputDirectory>${assembly-directory}</outputDirectory>
             </configuration>
@@ -513,9 +488,9 @@
               <goal>run</goal>
             </goals>
             <configuration>
-              <tasks>
+              <target>
                 <chmod dir="${assembly-directory}/bin" perm="755" includes="**/*.sh" />
-              </tasks>
+              </target>
             </configuration>
           </execution>
         </executions>
@@ -535,6 +510,8 @@
               <goal>single</goal>
             </goals>
             <configuration>
+              <overrideUid>0</overrideUid>
+              <overrideGid>0</overrideGid>
               <descriptors>
                 <descriptor>src/main/assembly/jetty-assembly.xml</descriptor>
               </descriptors>
@@ -554,22 +531,6 @@
             </configuration>
           </execution>
         </executions>
-      </plugin>
-      <!-- No point performing PMD in assembly project -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-pmd-plugin</artifactId>
-        <configuration>
-          <skip>true</skip>
-        </configuration>
-      </plugin>
-      <!-- No point performing Findbugs in assembly project -->
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <configuration>
-          <skip>true</skip>
-        </configuration>
       </plugin>
     </plugins>
   </build>
@@ -644,12 +605,17 @@
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
-      <artifactId>websocket-util-server</artifactId>
+      <artifactId>websocket-servlet</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
       <artifactId>websocket-jetty-server</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.websocket</groupId>
+      <artifactId>websocket-jetty-client</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -686,30 +652,30 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-unixsocket-server</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.fcgi</groupId>
       <artifactId>fcgi-server</artifactId>
       <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-spring</artifactId>
-      <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.jboss.logging</groupId>
       <artifactId>jboss-logging</artifactId>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-cdi</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-jaas</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -740,6 +706,7 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-openid</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -750,23 +717,27 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-jaspi</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>infinispan-embedded</artifactId>
       <version>${project.version}</version>
       <type>pom</type>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>infinispan-embedded-query</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>infinispan-remote</artifactId>
       <version>${project.version}</version>
       <type>pom</type>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -777,21 +748,104 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-hazelcast</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.gcloud</groupId>
       <artifactId>jetty-gcloud-session-manager</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.memcached</groupId>
       <artifactId>jetty-memcached-sessions</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-nosql</artifactId>
       <version>${project.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-keystore</artifactId>
+      <version>${project.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <!-- Demo Apps -->
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-mock-resources</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-jetty-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-jaas-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-jndi-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-spec-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-async-rest-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-proxy-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-simple-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.demos</groupId>
+      <artifactId>demo-jsp-webapp</artifactId>
+      <version>${project.version}</version>
+      <classifier>config</classifier>
+      <type>jar</type>
+      <optional>true</optional>
     </dependency>
   </dependencies>
 

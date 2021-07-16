@@ -125,8 +125,11 @@
     </Call>
   </Call>
 
-  <Get name="String">
-     <Call name="toString"/>
+  <Get>
+     <Name>String</Name>
+     <Call>
+       <Name>toString</Name>
+     </Call>
   </Get>
 
   <Call>
@@ -169,6 +172,15 @@
     <Entry>
       <Item id="key1">key1</Item>
       <Item id="value1">value1</Item>
+    </Entry>
+  </Map>
+
+  <Map>
+    <Id>concurrentMap</Id>
+    <Class>java.util.concurrent.ConcurrentHashMap</Class>
+    <Entry>
+      <Item>KEY</Item>
+      <Item>ITEM</Item>
     </Entry>
   </Map>
 

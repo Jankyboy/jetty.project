@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,6 +17,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -37,12 +34,12 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class CDITests extends AbstractDistributionTest
+public class CDITests extends AbstractJettyHomeTest
 {
     // Tests from here use these parameters
     public static Stream<Arguments> tests()
     {
-        Consumer<DistributionTester> renameJettyWebOwbXml = d ->
+        Consumer<JettyHomeTester> renameJettyWebOwbXml = d ->
         {
             try
             {
@@ -58,11 +55,13 @@ public class CDITests extends AbstractDistributionTest
 
         return Stream.of(
             // -- Weld --
+            // Uses test-weld-cdi-webapp
             Arguments.of("weld", "cdi-spi", null), // Weld >= 3.1.2
             Arguments.of("weld", "decorate", null), // Weld >= 3.1.2
             Arguments.of("weld", "cdi-decorate", null), // Weld >= 3.1.3
 
             // -- Apache OpenWebBeans --
+            // Uses test-owb-cdi-webapp
             Arguments.of("owb", "cdi-spi", null)
             // Arguments.of("owb", "decorate", null), // Not supported
             // Arguments.of("owb", "cdi-decorate", null) // Not supported
@@ -75,20 +74,21 @@ public class CDITests extends AbstractDistributionTest
      */
     @ParameterizedTest
     @MethodSource("tests")
-    public void testCDIIncludedInWebapp(String implementation, String integration, Consumer<DistributionTester> configure) throws Exception
+    public void testCDIIncludedInWebapp(String implementation, String integration, Consumer<JettyHomeTester> configure) throws Exception
     {
         String jettyVersion = System.getProperty("jettyVersion");
-        DistributionTester distribution = DistributionTester.Builder.newInstance()
+        String jvmArgs = System.getProperty("cdi.tests.jvmArgs");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
             .jettyVersion(jettyVersion)
+            .jvmArgs(jvmArgs == null ? Collections.emptyList() : Arrays.asList(jvmArgs.split("\\s+")))
             .mavenLocalRepository(System.getProperty("mavenRepoPath"))
             .build();
 
         String[] args1 = {
-            "--create-startd",
             "--approve-all-licenses",
-            "--add-to-start=http,deploy,annotations,jsp" + (integration == null ? "" : ("," + integration))
+            "--add-modules=http,deploy,annotations,jsp" + (integration == null ? "" : ("," + integration))
         };
-        try (DistributionTester.Run run1 = distribution.start(args1))
+        try (JettyHomeTester.Run run1 = distribution.start(args1))
         {
             assertTrue(run1.awaitFor(5, TimeUnit.SECONDS));
             assertEquals(0, run1.getExitValue());
@@ -99,7 +99,7 @@ public class CDITests extends AbstractDistributionTest
                 configure.accept(distribution);
 
             int port = distribution.freePort();
-            try (DistributionTester.Run run2 = distribution.start("jetty.http.port=" + port))
+            try (JettyHomeTester.Run run2 = distribution.start("jetty.http.port=" + port))
             {
                 assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
 

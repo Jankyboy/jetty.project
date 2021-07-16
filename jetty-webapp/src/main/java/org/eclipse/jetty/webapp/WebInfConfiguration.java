@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,6 +16,8 @@ package org.eclipse.jetty.webapp;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Locale;
 
 import org.eclipse.jetty.server.Connector;
@@ -82,10 +79,12 @@ public class WebInfConfiguration extends AbstractConfiguration
     @Override
     public void deconfigure(WebAppContext context) throws Exception
     {
-        //if we're not persisting the temp dir contents delete it
+        File tempDirectory = context.getTempDirectory();
+
+        // if we're not persisting the temp dir contents delete it
         if (!context.isPersistTempDirectory())
         {
-            IO.delete(context.getTempDirectory());
+            IO.delete(tempDirectory);
         }
 
         //if it wasn't explicitly configured by the user, then unset it
@@ -102,14 +101,10 @@ public class WebInfConfiguration extends AbstractConfiguration
     @Override
     public void cloneConfigure(WebAppContext template, WebAppContext context) throws Exception
     {
-        File tmpDir = File.createTempFile(WebInfConfiguration.getCanonicalNameForWebAppTmpDir(context), "", template.getTempDirectory().getParentFile());
-        if (tmpDir.exists())
-        {
-            IO.delete(tmpDir);
-        }
-        tmpDir.mkdir();
-        tmpDir.deleteOnExit();
-        context.setTempDirectory(tmpDir);
+        Path tmpDir = Files.createTempDirectory(template.getTempDirectory().getParentFile().toPath(), WebInfConfiguration.getCanonicalNameForWebAppTmpDir(context));
+        File tmpDirAsFile = tmpDir.toFile();
+        tmpDirAsFile.deleteOnExit();
+        context.setTempDirectory(tmpDirAsFile);
     }
 
     /**
@@ -170,8 +165,11 @@ public class WebInfConfiguration extends AbstractConfiguration
         //We need to make a temp dir. Check if the user has set a directory to use instead
         //of java.io.tmpdir as the parent of the dir
         File baseTemp = asFile(context.getAttribute(WebAppContext.BASETEMPDIR));
-        if (baseTemp != null && baseTemp.isDirectory() && baseTemp.canWrite())
+        if (baseTemp != null)
         {
+            if (!baseTemp.isDirectory() || !baseTemp.canWrite())
+                throw new IllegalStateException(WebAppContext.BASETEMPDIR + " is not a writable directory");
+
             //Make a temp directory as a child of the given base dir
             makeTempDirectory(baseTemp, context);
             return;
@@ -199,23 +197,20 @@ public class WebInfConfiguration extends AbstractConfiguration
      * Given an Object, return File reference for object.
      * Typically used to convert anonymous Object from getAttribute() calls to a File object.
      *
-     * @param fileattr the file attribute to analyze and return from (supports type File and type String, all others return null
-     * @return the File object, null if null, or null if not a File or String
+     * @param fileattr the file attribute to analyze and return from (supports type File, Path, and String).
+     * @return the File object if it can be converted otherwise null.
      */
     private File asFile(Object fileattr)
     {
         if (fileattr == null)
-        {
             return null;
-        }
         if (fileattr instanceof File)
-        {
             return (File)fileattr;
-        }
         if (fileattr instanceof String)
-        {
             return new File((String)fileattr);
-        }
+        if (fileattr instanceof Path)
+            return ((Path)fileattr).toFile();
+
         return null;
     }
 
@@ -233,17 +228,15 @@ public class WebInfConfiguration extends AbstractConfiguration
             //if it is to be persisted, make sure it will be the same name
             //by not using File.createTempFile, which appends random digits
             tmpDir = new File(parent, temp);
+            configureTempDirectory(tmpDir, context);
         }
         else
         {
-            //ensure file will always be unique by appending random digits
-            tmpDir = File.createTempFile(temp, ".dir", parent);
-            //delete the file that was created
-            tmpDir.delete();
-            //and make a directory of the same name
-            tmpDir.mkdirs();
+            // ensure dir will always be unique by having classlib generate random path name
+            tmpDir = Files.createTempDirectory(parent.toPath(), temp).toFile();
+            tmpDir.deleteOnExit();
+            ensureTempDirUsable(tmpDir);
         }
-        configureTempDirectory(tmpDir, context);
 
         if (LOG.isDebugEnabled())
             LOG.debug("Set temp dir {}", tmpDir);
@@ -255,21 +248,30 @@ public class WebInfConfiguration extends AbstractConfiguration
         if (dir == null)
             throw new IllegalArgumentException("Null temp dir");
 
-        //if dir exists and we don't want it persisted, delete it
-        if (dir.exists() && !context.isPersistTempDirectory())
+        // if dir exists and we don't want it persisted, delete it
+        if (!context.isPersistTempDirectory() && dir.exists() && !IO.delete(dir))
         {
-            if (!IO.delete(dir))
-                throw new IllegalStateException("Failed to delete temp dir " + dir);
+            throw new IllegalStateException("Failed to delete temp dir " + dir);
         }
 
-        //if it doesn't exist make it
+        // if it doesn't exist make it
         if (!dir.exists())
-            dir.mkdirs();
+        {
+            if (!dir.mkdirs())
+            {
+                throw new IllegalStateException("Unable to create temp dir " + dir);
+            }
+        }
 
         if (!context.isPersistTempDirectory())
             dir.deleteOnExit();
 
-        //is it useable
+        ensureTempDirUsable(dir);
+    }
+
+    private void ensureTempDirUsable(File dir)
+    {
+        // is it useable
         if (!dir.canWrite() || !dir.isDirectory())
             throw new IllegalStateException("Temp dir " + dir + " not useable: writeable=" + dir.canWrite() + ", dir=" + dir.isDirectory());
     }
@@ -294,7 +296,7 @@ public class WebInfConfiguration extends AbstractConfiguration
             if (webApp.isAlias())
             {
                 if (LOG.isDebugEnabled())
-                LOG.debug("{} anti-aliased to {}", webApp, webApp.getAlias());
+                    LOG.debug("{} anti-aliased to {}", webApp, webApp.getAlias());
                 webApp = context.newResource(webApp.getAlias());
             }
 
@@ -424,7 +426,7 @@ public class WebInfConfiguration extends AbstractConfiguration
                 webInfLibDir.mkdir();
 
                 if (LOG.isDebugEnabled())
-                LOG.debug("Copying WEB-INF/lib {} to {}", webInfLib, webInfLibDir);
+                    LOG.debug("Copying WEB-INF/lib {} to {}", webInfLib, webInfLibDir);
                 webInfLib.copyTo(webInfLibDir);
             }
 

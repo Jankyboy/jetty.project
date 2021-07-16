@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -106,7 +101,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
         {
             os.write((
                 "GET / HTTP/1.0\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: keep-alive\r\n" +
                     "\r\n").getBytes("utf-8"));
             os.flush();
@@ -141,7 +136,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
             byte[] contentB = content.getBytes("utf-8");
             os.write((
                 "POST /echo HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: " + contentB.length + "\r\n" +
                     "\r\n").getBytes("utf-8"));
@@ -189,7 +184,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         os.write((
             "GET / HTTP/1.0\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: close\r\n" +
                 "\r\n").getBytes("utf-8"));
         os.flush();
@@ -250,7 +245,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
         byte[] contentB = content.getBytes("utf-8");
         os.write((
             "POST /echo HTTP/1.1\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "content-type: text/plain; charset=utf-8\r\n" +
                 "content-length: " + contentB.length + "\r\n" +
                 "connection: close\r\n" +
@@ -295,7 +290,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         OutputStream os = client.getOutputStream();
         os.write(("GET / HTTP/1.1\r\n" +
-            "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+            "host: localhost:" + _serverURI.getPort() + "\r\n" +
             "Transfer-Encoding: chunked\r\n" +
             "Content-Type: text/plain\r\n" +
             "Connection: close\r\n" +
@@ -356,7 +351,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         long start = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
         os.write(("GET / HTTP/1.1\r\n" +
-            "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+            "host: localhost:" + _serverURI.getPort() + "\r\n" +
             "Transfer-Encoding: chunked\r\n" +
             "Content-Type: text/plain\r\n" +
             "Connection: close\r\n" +
@@ -413,7 +408,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         os.write((
             "GET / HTTP/1.0\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Connection: close\r\n" +
                 "\r\n").getBytes("utf-8"));
@@ -456,7 +451,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         os.write((
             "GET / HTTP/1.0\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Connection: close\r\n" +
                 "\r\n").getBytes("utf-8"));
@@ -561,7 +556,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
         long start = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
         os.write((
             "GET / HTTP/1.1\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Content-Length: 20\r\n" +
                 "Content-Type: text/plain\r\n" +
@@ -600,7 +595,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
         long start = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
         os.write((
             "GET / HTTP/1.1\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Content-Length: 20\r\n" +
                 "Content-Type: text/plain\r\n" +
@@ -643,7 +638,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
         byte[] contentB = content.getBytes("utf-8");
         os.write((
             "GET / HTTP/1.0\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Content-Length: " + (contentB.length * 20) + "\r\n" +
                 "Content-Type: text/plain\r\n" +
@@ -684,7 +679,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         os.write((
             "GET / HTTP/1.0\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Connection: close\r\n" +
                 "\r\n").getBytes("utf-8"));
@@ -716,7 +711,7 @@ public abstract class ConnectorTimeoutTest extends HttpServerTestFixture
 
         os.write((
             "GET / HTTP/1.0\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: keep-alive\r\n" +
                 "Connection: close\r\n" +
                 "\r\n").getBytes("utf-8"));

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -51,11 +46,13 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.LogMessageWaitStrategy;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Testcontainers(disabledWithoutDocker = true)
 public class RemoteQueryManagerTest
 {
     public static final String DEFAULT_CACHE_NAME = "remote-session-test";
@@ -75,14 +72,14 @@ public class RemoteQueryManagerTest
     
     GenericContainer infinispan =
         new GenericContainer(System.getProperty("infinispan.docker.image.name", "jboss/infinispan-server") +
-                                 ":" + System.getProperty("infinispan.docker.image.version", "9.4.8.Final"))
-            .withEnv("APP_USER","theuser")
-            .withEnv("APP_PASS","foobar")
+            ":" + System.getProperty("infinispan.docker.image.version", "9.4.8.Final"))
+            .withEnv("APP_USER", "theuser")
+            .withEnv("APP_PASS", "foobar")
             .withEnv("MGMT_USER", "admin")
             .withEnv("MGMT_PASS", "admin")
             .waitingFor(new LogMessageWaitStrategy()
-                            .withRegEx(".*Infinispan Server.*started in.*\\s"))
-            .withExposedPorts(4712,4713,8088,8089,8443,9990,9993,11211,11222,11223,11224)
+                .withRegEx(".*Infinispan Server.*started in.*\\s"))
+            .withExposedPorts(4712, 4713, 8088, 8089, 8443, 9990, 9993, 11211, 11222, 11223, 11224)
             .withLogConsumer(new Slf4jLogConsumer(INFINISPAN_LOG));
 
     @BeforeEach

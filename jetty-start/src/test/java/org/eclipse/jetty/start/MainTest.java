@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -56,7 +51,7 @@ public class MainTest
         // cmdLineArgs.add("jetty.http.port=9090");
 
         Main main = new Main();
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         BaseHome baseHome = main.getBaseHome();
         // System.err.println(args);
 
@@ -92,7 +87,7 @@ public class MainTest
         cmdLineArgs.add("STOP.WAIT=300");
 
         Main main = new Main();
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         // System.err.println(args);
 
         // assertEquals(0, args.getEnabledModules().size(), "--stop should not build module tree");
@@ -113,7 +108,7 @@ public class MainTest
         // cmdLineArgs.add("--debug");
 
         Main main = new Main();
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         main.listConfig(args);
     }
 
@@ -131,8 +126,8 @@ public class MainTest
         List<String> cmdLineArgs = new ArrayList<>();
 
         Path homePath = MavenTestingUtils.getTestResourceDir("dist-home").toPath().toRealPath();
-        cmdLineArgs.add("jetty.home=" + homePath.toString());
-        cmdLineArgs.add("user.dir=" + homePath.toString());
+        cmdLineArgs.add("jetty.home=" + homePath);
+        cmdLineArgs.add("user.dir=" + homePath);
 
         // JVM args
         cmdLineArgs.add("--exec");
@@ -146,13 +141,8 @@ public class MainTest
         assertThat("Extra Jar exists: " + extraJar, Files.exists(extraJar), is(true));
         assertThat("Extra Dir exists: " + extraDir, Files.exists(extraDir), is(true));
 
-        StringBuilder lib = new StringBuilder();
-        lib.append("--lib=");
-        lib.append(extraJar.toString());
-        lib.append(File.pathSeparator);
-        lib.append(extraDir.toString());
-
-        cmdLineArgs.add(lib.toString());
+        String lib = "--lib=" + extraJar + File.pathSeparator + extraDir;
+        cmdLineArgs.add(lib);
 
         // Arbitrary XMLs
         cmdLineArgs.add("config.xml");
@@ -161,7 +151,7 @@ public class MainTest
 
         Main main = new Main();
 
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         BaseHome baseHome = main.getBaseHome();
 
         assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
@@ -176,8 +166,8 @@ public class MainTest
         List<String> cmdLineArgs = new ArrayList<>();
 
         Path homePath = MavenTestingUtils.getTestResourceDir("dist-home").toPath().toRealPath();
-        cmdLineArgs.add("jetty.home=" + homePath.toString());
-        cmdLineArgs.add("user.dir=" + homePath.toString());
+        cmdLineArgs.add("jetty.home=" + homePath);
+        cmdLineArgs.add("user.dir=" + homePath);
 
         // JVM args
         cmdLineArgs.add("--exec");
@@ -187,7 +177,7 @@ public class MainTest
 
         Main main = new Main();
 
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         BaseHome baseHome = main.getBaseHome();
 
         assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
@@ -216,7 +206,7 @@ public class MainTest
 
         Main main = new Main();
 
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         BaseHome baseHome = main.getBaseHome();
 
         assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
@@ -230,8 +220,11 @@ public class MainTest
     {
         Path distPath = MavenTestingUtils.getTestResourceDir("dist-home").toPath().toRealPath();
         Path homePath = MavenTestingUtils.getTargetTestingPath().resolve("dist home with spaces");
-        IO.copy(distPath.toFile(), homePath.toFile());
-        homePath.resolve("lib/a library.jar").toFile().createNewFile();
+        if (!Files.exists(homePath))
+        {
+            IO.copy(distPath.toFile(), homePath.toFile());
+            Files.createFile(homePath.resolve("lib/a library.jar"));
+        }
 
         List<String> cmdLineArgs = new ArrayList<>();
         cmdLineArgs.add("user.dir=" + homePath);
@@ -239,7 +232,7 @@ public class MainTest
         cmdLineArgs.add("--lib=lib/a library.jar");
 
         Main main = new Main();
-        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[0]));
         BaseHome baseHome = main.getBaseHome();
 
         assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));

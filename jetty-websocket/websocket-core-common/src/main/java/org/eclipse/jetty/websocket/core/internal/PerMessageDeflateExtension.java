@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -27,6 +22,8 @@ import java.util.zip.Inflater;
 
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.compression.DeflaterPool;
+import org.eclipse.jetty.util.compression.InflaterPool;
 import org.eclipse.jetty.websocket.core.AbstractExtension;
 import org.eclipse.jetty.websocket.core.ExtensionConfig;
 import org.eclipse.jetty.websocket.core.Frame;
@@ -52,8 +49,8 @@ public class PerMessageDeflateExtension extends AbstractExtension
 
     private final TransformingFlusher outgoingFlusher;
     private final TransformingFlusher incomingFlusher;
-    private Deflater deflaterImpl;
-    private Inflater inflaterImpl;
+    private DeflaterPool.Entry deflaterHolder;
+    private InflaterPool.Entry inflaterHolder;
     private boolean incomingCompressed;
 
     private ExtensionConfig configRequested;
@@ -178,28 +175,34 @@ public class PerMessageDeflateExtension extends AbstractExtension
 
     public Deflater getDeflater()
     {
-        if (deflaterImpl == null)
-            deflaterImpl = getDeflaterPool().acquire();
-        return deflaterImpl;
+        if (deflaterHolder == null)
+            deflaterHolder = getDeflaterPool().acquire();
+        return deflaterHolder.get();
     }
 
     public Inflater getInflater()
     {
-        if (inflaterImpl == null)
-            inflaterImpl = getInflaterPool().acquire();
-        return inflaterImpl;
+        if (inflaterHolder == null)
+            inflaterHolder = getInflaterPool().acquire();
+        return inflaterHolder.get();
     }
 
     public void releaseInflater()
     {
-        getInflaterPool().release(inflaterImpl);
-        inflaterImpl = null;
+        if (inflaterHolder != null)
+        {
+            inflaterHolder.release();
+            inflaterHolder = null;
+        }
     }
 
     public void releaseDeflater()
     {
-        getDeflaterPool().release(deflaterImpl);
-        deflaterImpl = null;
+        if (deflaterHolder != null)
+        {
+            deflaterHolder.release();
+            deflaterHolder = null;
+        }
     }
 
     @Override
@@ -413,10 +416,10 @@ public class PerMessageDeflateExtension extends AbstractExtension
             Inflater inflater = getInflater();
             while (true)
             {
-                int read = inflater.inflate(payload.array(), payload.arrayOffset() + payload.position(), bufferSize - payload.position());
-                payload.limit(payload.limit() + read);
+                int decompressed = inflater.inflate(payload.array(), payload.arrayOffset() + payload.position(), bufferSize - payload.position());
+                payload.limit(payload.limit() + decompressed);
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Decompress: read {} {}", read, toDetail(inflater));
+                    LOG.debug("Decompress: read {} {}", decompressed, toDetail(inflater));
 
                 if (payload.limit() == bufferSize)
                 {
@@ -426,7 +429,7 @@ public class PerMessageDeflateExtension extends AbstractExtension
                     break;
                 }
 
-                if (read == 0)
+                if (decompressed == 0)
                 {
                     if (!_tailBytes && _frame.isFin())
                     {

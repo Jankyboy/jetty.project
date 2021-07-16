@@ -3,12 +3,11 @@
   <parent>
     <groupId>org.eclipse.jetty.osgi</groupId>
     <artifactId>jetty-osgi-project</artifactId>
-    <version>10.0.0-SNAPSHOT</version>
+    <version>10.0.7-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>test-jetty-osgi-webapp-resources</artifactId>
   <name>OSGi Test :: Webapp With Resources</name>
-  <url>http://www.eclipse.org/jetty</url>
   <packaging>war</packaging>
   <properties>
     <bundle-symbolic-name>${project.groupId}.webapp.resources</bundle-symbolic-name>
@@ -75,7 +74,7 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
         <configuration>
-          <!-- must deploy: required for jetty-distribution -->
+          <!-- must not deploy -->
           <skip>false</skip>
         </configuration>
       </plugin>

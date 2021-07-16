@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -82,8 +77,7 @@ public interface CoreSession extends OutgoingFrames, Configuration
     Behavior getBehavior();
 
     /**
-     * TODO
-     * @return
+     * @return the WebSocketComponents instance in use for this Connection.
      */
     WebSocketComponents getWebSocketComponents();
 
@@ -170,6 +164,21 @@ public interface CoreSession extends OutgoingFrames, Configuration
      * {@link FrameHandler#onFrame(Frame, Callback)}).  May not be negative.
      */
     void demand(long n);
+
+    /**
+     * @return true if an extension has been negotiated which uses the RSV1 bit.
+     */
+    boolean isRsv1Used();
+
+    /**
+     * @return true if an extension has been negotiated which uses the RSV2 bit.
+     */
+    boolean isRsv2Used();
+
+    /**
+     * @return true if an extension has been negotiated which uses the RSV3 bit.
+     */
+    boolean isRsv3Used();
 
     class Empty extends ConfigurationCustomizer implements CoreSession
     {
@@ -277,6 +286,24 @@ public interface CoreSession extends OutgoingFrames, Configuration
         public void sendFrame(Frame frame, Callback callback, boolean batch)
         {
             callback.succeeded();
+        }
+
+        @Override
+        public boolean isRsv1Used()
+        {
+            return false;
+        }
+
+        @Override
+        public boolean isRsv2Used()
+        {
+            return false;
+        }
+
+        @Override
+        public boolean isRsv3Used()
+        {
+            return false;
         }
     }
 }

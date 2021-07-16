@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -41,7 +36,7 @@ import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.eclipse.jetty.http.tools.HttpTester;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.io.EofException;
 import org.eclipse.jetty.logging.StacklessLogging;
@@ -52,7 +47,6 @@ import org.eclipse.jetty.util.IO;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
-import org.junit.jupiter.api.condition.DisabledOnJre;
 import org.junit.jupiter.api.condition.JRE;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,7 +132,11 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
         {
             OutputStream os = client.getOutputStream();
 
-            os.write("GET / HTTP/1.0\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+            String request = "GET / HTTP/1.1\r\n" +
+                "Host: localhost\r\n" +
+                "Connection: close\r\n" +
+                "\r\n";
+            os.write(request.getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
 
             // Read the response.
@@ -159,7 +157,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             OutputStream os = client.getOutputStream();
 
             os.write(("OPTIONS * HTTP/1.1\r\n" +
-                "Host: " + _serverURI.getHost() + "\r\n" +
+                "Host: localhost\r\n" +
                 "Connection: close\r\n" +
                 "\r\n").getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
@@ -666,7 +664,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
                         String test = encoding[e] + "x" + b + "x" + w + "x" + c;
                         try
                         {
-                            URL url = new URL(_scheme + "://" + _serverURI.getHost() + ":" + _serverURI.getPort() + "/?writes=" + w + "&block=" + b + (e == 0 ? "" : ("&encoding=" + encoding[e])) + (c == 0 ? "&chars=true" : ""));
+                            URL url = new URL(_scheme + "://localhost:" + _serverURI.getPort() + "/?writes=" + w + "&block=" + b + (e == 0 ? "" : ("&encoding=" + encoding[e])) + (c == 0 ? "&chars=true" : ""));
 
                             InputStream in = (InputStream)url.getContent();
                             String response = IO.toString(in, e == 0 ? null : encoding[e]);
@@ -698,7 +696,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "GET /data?writes=1024&block=256 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: close\r\n" +
                     "content-type: unknown\r\n" +
                     "content-length: 30\r\n" +
@@ -758,7 +756,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "GET /data HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: unknown\r\n" +
                     "transfer-encoding: chunked\r\n" +
                     "\r\n"
@@ -807,7 +805,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "GET /data?writes=256&block=1024 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: close\r\n" +
                     "content-type: unknown\r\n" +
                     "\r\n"
@@ -848,7 +846,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "GET /data?encoding=iso-8859-1&writes=100&block=100000 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: close\r\n" +
                     "content-type: unknown\r\n" +
                     "\r\n"
@@ -875,7 +873,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             InputStream is = client.getInputStream();
 
             os.write(("GET /data?writes=1&block=1024 HTTP/1.1\r\n" +
-                "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "connection: close\r\n" +
                 "content-type: unknown\r\n" +
                 "\r\n"
@@ -901,10 +899,10 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "GET /r1 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "\r\n" +
                     "GET /r2 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: close\r\n" +
                     "\r\n"
             ).getBytes());
@@ -1049,7 +1047,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
                 {
                     request +=
                         "GET /data?writes=1&block=16&id=" + i + " HTTP/1.1\r\n" +
-                            "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                            "host: localhost:" + _serverURI.getPort() + "\r\n" +
                             "user-agent: testharness/1.0 (blah foo/bar)\r\n" +
                             "accept-encoding: nothing\r\n" +
                             "cookie: aaa=1234567890\r\n" +
@@ -1058,7 +1056,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
                 request +=
                     "GET /data?writes=1&block=16 HTTP/1.1\r\n" +
-                        "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                        "host: localhost:" + _serverURI.getPort() + "\r\n" +
                         "user-agent: testharness/1.0 (blah foo/bar)\r\n" +
                         "accept-encoding: nothing\r\n" +
                         "cookie: aaa=bbbbbb\r\n" +
@@ -1095,7 +1093,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "POST /echo?charset=utf-8 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "\r\n").getBytes(StandardCharsets.ISO_8859_1));
@@ -1106,7 +1104,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "POST /echo?charset=utf-8 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "\r\n"
@@ -1120,7 +1118,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             byte[] contentB = content.getBytes("utf-8");
             os.write((
                 "POST /echo?charset=utf-16 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: " + contentB.length + "\r\n" +
                     "connection: close\r\n" +
@@ -1182,21 +1180,21 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             //@checkstyle-disable-check : IllegalTokenText
             os.write((
                 "POST /R1 HTTP/1.1\r\n" +
-                    "Host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "Host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "\r\n" +
                     "123456789\n" +
 
                     "HEAD /R2 HTTP/1.1\r\n" +
-                    "Host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "Host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "\r\n" +
                     "ABCDEFGHI\n" +
 
                     "POST /R3 HTTP/1.1\r\n" +
-                    "Host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "Host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "Connection: close\r\n" +
@@ -1224,7 +1222,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "POST /echo/0?charset=utf-8 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "\r\n").getBytes(StandardCharsets.ISO_8859_1));
@@ -1235,7 +1233,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "POST /echo/1?charset=utf-8 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-8\r\n" +
                     "content-length: 10\r\n" +
                     "\r\n"
@@ -1249,7 +1247,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             byte[] contentB = content.getBytes(StandardCharsets.UTF_16);
             os.write((
                 "POST /echo/2?charset=utf-8 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "content-type: text/plain; charset=utf-16\r\n" +
                     "content-length: " + contentB.length + "\r\n" +
                     "connection: close\r\n" +
@@ -1279,7 +1277,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             // Send a request with chunked input and expect 100
             os.write((
                 "GET / HTTP/1.1\r\n" +
-                    "Host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "Host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "Transfer-Encoding: chunked\r\n" +
                     "Expect: 100-continue\r\n" +
                     "Connection: Keep-Alive\r\n" +
@@ -1316,7 +1314,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             // Send a request
             os.write(("GET / HTTP/1.1\r\n" +
-                "Host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                "Host: localhost:" + _serverURI.getPort() + "\r\n" +
                 "\r\n"
             ).getBytes());
             os.flush();
@@ -1452,7 +1450,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
 
             os.write((
                 "GET /data?writes=1024&block=256 HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: close\r\n" +
                     "content-type: unknown\r\n" +
                     "content-length: 30\r\n" +
@@ -1608,7 +1606,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
                     {
                         out.write(bytes, 0, bytes.length);
                     }
-                    out.write("GET / HTTP/1.1\r\nHost: last\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                    out.write("GET /last HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
                     out.flush();
                 }
                 catch (Exception e)
@@ -1636,8 +1634,8 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
         Socket client = newSocket(_serverURI.getHost(), _serverURI.getPort());
         final OutputStream out = client.getOutputStream();
 
-        out.write("GET / HTTP/1.1\r\nHost: test\r\n\r\n".getBytes());
-        out.write("GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n".getBytes());
+        out.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes());
+        out.write("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".getBytes());
         out.flush();
 
         BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
@@ -1679,7 +1677,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
         while (line != null);
     }
 
-    private class WriteBodyAfterNoBodyResponseHandler extends AbstractHandler
+    private static class WriteBodyAfterNoBodyResponseHandler extends AbstractHandler
     {
         @Override
         public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
@@ -1722,7 +1720,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             // write an initial request
             os.write((
                 "GET / HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "\r\n"
             ).getBytes());
             os.flush();
@@ -1732,7 +1730,7 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
             // write an pipelined request
             os.write((
                 "GET / HTTP/1.1\r\n" +
-                    "host: " + _serverURI.getHost() + ":" + _serverURI.getPort() + "\r\n" +
+                    "host: localhost:" + _serverURI.getPort() + "\r\n" +
                     "connection: close\r\n" +
                     "\r\n"
             ).getBytes());
@@ -1751,7 +1749,6 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
     }
 
     @Test
-    @DisabledOnJre({JRE.JAVA_8, JRE.JAVA_9, JRE.JAVA_10})
     public void testShutdown() throws Exception
     {
         configureServer(new ReadExactHandler());
@@ -1792,7 +1789,6 @@ public abstract class HttpServerTestBase extends HttpServerTestFixture
     }
 
     @Test
-    @DisabledOnJre({JRE.JAVA_8, JRE.JAVA_9, JRE.JAVA_10})
     public void testChunkedShutdown() throws Exception
     {
         configureServer(new ReadExactHandler(4096));

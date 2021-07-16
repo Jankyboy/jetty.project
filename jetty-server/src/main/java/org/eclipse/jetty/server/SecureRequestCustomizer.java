@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,6 +13,7 @@
 
 package org.eclipse.jetty.server;
 
+import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.HashSet;
 import java.util.Set;
@@ -40,7 +36,6 @@ import org.eclipse.jetty.util.Attributes;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.annotation.Name;
-import org.eclipse.jetty.util.ssl.SniX509ExtendedKeyManager;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.ssl.X509;
 import org.slf4j.Logger;
@@ -58,12 +53,13 @@ public class SecureRequestCustomizer implements HttpConfiguration.Customizer
     public static final String JAVAX_SERVLET_REQUEST_CIPHER_SUITE = "javax.servlet.request.cipher_suite";
     public static final String JAVAX_SERVLET_REQUEST_KEY_SIZE = "javax.servlet.request.key_size";
     public static final String JAVAX_SERVLET_REQUEST_SSL_SESSION_ID = "javax.servlet.request.ssl_session_id";
+    public static final String X509_CERT = "org.eclipse.jetty.server.x509_cert";
 
     private String sslSessionAttribute = "org.eclipse.jetty.servlet.request.ssl_session";
 
     private boolean _sniRequired;
     private boolean _sniHostCheck;
-    private long _stsMaxAge = -1;
+    private long _stsMaxAge;
     private boolean _stsIncludeSubDomains;
     private HttpField _stsField;
 
@@ -247,26 +243,32 @@ public class SecureRequestCustomizer implements HttpConfiguration.Customizer
     {
         SSLSession sslSession = sslEngine.getSession();
 
-        if (_sniHostCheck || _sniRequired)
+        if (isSniRequired() || isSniHostCheck())
         {
-            X509 x509 = (X509)sslSession.getValue(SniX509ExtendedKeyManager.SNI_X509);
-            if (LOG.isDebugEnabled())
-                LOG.debug("Host {} with SNI {}", request.getServerName(), x509);
-
+            String sniHost = (String)sslSession.getValue(SslContextFactory.Server.SNI_HOST);
+            X509 x509 = (X509)sslSession.getValue(X509_CERT);
             if (x509 == null)
             {
-                if (_sniRequired)
-                    throw new BadMessageException(400, "SNI required");
+                Certificate[] certificates = sslSession.getLocalCertificates();
+                if (certificates == null || certificates.length == 0 || !(certificates[0] instanceof X509Certificate))
+                    throw new BadMessageException(400, "Invalid SNI");
+                x509 = new X509(null, (X509Certificate)certificates[0]);
+                sslSession.putValue(X509_CERT, x509);
             }
-            else if (_sniHostCheck && !x509.matches(request.getServerName()))
-            {
-                throw new BadMessageException(400, "Host does not match SNI");
-            }
+            String serverName = request.getServerName();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Host={}, SNI={}, SNI Certificate={}", serverName, sniHost, x509);
+
+            if (isSniRequired() && (sniHost == null || !x509.matches(sniHost)))
+                throw new BadMessageException(400, "Invalid SNI");
+
+            if (isSniHostCheck() && !x509.matches(serverName))
+                throw new BadMessageException(400, "Invalid SNI");
         }
 
-        request.setAttributes(new SslAttributes(request, sslSession, request.getAttributes()));
+        request.setAttributes(new SslAttributes(request, sslSession));
     }
-    
+
     /**
      * Customizes the request attributes for general secure settings.
      * The default impl calls {@link Request#setSecure(boolean)} with true
@@ -325,18 +327,19 @@ public class SecureRequestCustomizer implements HttpConfiguration.Customizer
         private String _sessionId;
         private String _sessionAttribute;
 
-        public SslAttributes(Request request, SSLSession sslSession, Attributes attributes)
+        private SslAttributes(Request request, SSLSession sslSession)
         {
-            super(attributes);
+            super(request.getAttributes());
             this._request = request;
             this._session = sslSession;
 
             try
             {
-                _certs = getSslSessionData().getCerts();
+                SslSessionData sslSessionData = getSslSessionData();
+                _certs = sslSessionData.getCerts();
                 _cipherSuite = _session.getCipherSuite();
-                _keySize = getSslSessionData().getKeySize();
-                _sessionId = getSslSessionData().getIdStr();
+                _keySize = sslSessionData.getKeySize();
+                _sessionId = sslSessionData.getIdStr();
                 _sessionAttribute = getSslSessionAttribute();
             }
             catch (Exception e)

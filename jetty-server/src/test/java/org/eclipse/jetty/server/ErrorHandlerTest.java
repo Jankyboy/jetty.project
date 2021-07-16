@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -30,12 +25,16 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpHeader;
-import org.eclipse.jetty.http.tools.HttpTester;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.logging.StacklessLogging;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.server.handler.ContextHandler;
+import org.eclipse.jetty.server.handler.ContextHandlerCollection;
+import org.eclipse.jetty.server.handler.ErrorHandler;
+import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.ajax.JSON;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -53,12 +52,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ErrorHandlerTest
 {
-    static StacklessLogging stacklessLogging;
-    static Server server;
-    static LocalConnector connector;
+    StacklessLogging stacklessLogging;
+    Server server;
+    LocalConnector connector;
 
-    @BeforeAll
-    public static void before() throws Exception
+    @BeforeEach
+    public void before() throws Exception
     {
         stacklessLogging = new StacklessLogging(HttpChannel.class);
         server = new Server();
@@ -129,8 +128,8 @@ public class ErrorHandlerTest
         server.start();
     }
 
-    @AfterAll
-    public static void after() throws Exception
+    @AfterEach
+    public void after() throws Exception
     {
         server.stop();
         stacklessLogging.close();
@@ -178,9 +177,19 @@ public class ErrorHandlerTest
                 "\r\n");
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
 
+        dump(response);
+
         assertThat("Response status code", response.getStatus(), is(404));
         assertThat("Response Content-Length", response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), is(0));
         assertThat("Response Content-Type", response.getField(HttpHeader.CONTENT_TYPE), is(nullValue()));
+    }
+
+    private void dump(HttpTester.Response response)
+    {
+        System.out.println("-------------");
+        System.out.println(response);
+        System.out.println(response.getContent());
+        System.out.println();
     }
 
     @Test
@@ -215,6 +224,90 @@ public class ErrorHandlerTest
         assertThat("Response Content-Length", response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
         assertThat("Response Content-Type", response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=ISO-8859-1"));
 
+        assertContent(response);
+    }
+
+    @Test
+    public void test404PostHttp10() throws Exception
+    {
+        String rawResponse = connector.getResponse(
+            "POST / HTTP/1.0\r\n" +
+                "Host: Localhost\r\n" +
+                "Accept: text/html\r\n" +
+                "Content-Length: 10\r\n" +
+                "Connection: keep-alive\r\n" +
+                "\r\n" +
+                "0123456789");
+
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+
+        assertThat(response.getStatus(), is(404));
+        assertThat(response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
+        assertThat(response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=ISO-8859-1"));
+        assertThat(response.get(HttpHeader.CONNECTION), is("keep-alive"));
+        assertContent(response);
+    }
+
+    @Test
+    public void test404PostHttp11() throws Exception
+    {
+        String rawResponse = connector.getResponse(
+            "POST / HTTP/1.1\r\n" +
+                "Host: Localhost\r\n" +
+                "Accept: text/html\r\n" +
+                "Content-Length: 10\r\n" +
+                "Connection: keep-alive\r\n" + // This is not need by HTTP/1.1 but sometimes sent anyway
+                "\r\n" +
+                "0123456789");
+
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+
+        assertThat(response.getStatus(), is(404));
+        assertThat(response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
+        assertThat(response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=ISO-8859-1"));
+        assertThat(response.getField(HttpHeader.CONNECTION), nullValue());
+        assertContent(response);
+    }
+
+    @Test
+    public void test404PostCantConsumeHttp10() throws Exception
+    {
+        String rawResponse = connector.getResponse(
+            "POST / HTTP/1.0\r\n" +
+                "Host: Localhost\r\n" +
+                "Accept: text/html\r\n" +
+                "Content-Length: 100\r\n" +
+                "Connection: keep-alive\r\n" +
+                "\r\n" +
+                "0123456789");
+
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+
+        assertThat(response.getStatus(), is(404));
+        assertThat(response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
+        assertThat(response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=ISO-8859-1"));
+        assertThat(response.getField(HttpHeader.CONNECTION), nullValue());
+        assertContent(response);
+    }
+
+    @Test
+    public void test404PostCantConsumeHttp11() throws Exception
+    {
+        String rawResponse = connector.getResponse(
+            "POST / HTTP/1.1\r\n" +
+                "Host: Localhost\r\n" +
+                "Accept: text/html\r\n" +
+                "Content-Length: 100\r\n" +
+                "Connection: keep-alive\r\n" + // This is not need by HTTP/1.1 but sometimes sent anyway
+                "\r\n" +
+                "0123456789");
+
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+
+        assertThat(response.getStatus(), is(404));
+        assertThat(response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
+        assertThat(response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=ISO-8859-1"));
+        assertThat(response.getField(HttpHeader.CONNECTION).getValue(), is("close"));
         assertContent(response);
     }
 
@@ -285,6 +378,8 @@ public class ErrorHandlerTest
                 "\r\n");
 
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+
+//        System.out.println("response: " + response);
 
         assertThat("Response status code", response.getStatus(), is(404));
         assertThat("Response Content-Length", response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
@@ -449,6 +544,8 @@ public class ErrorHandlerTest
 
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
 
+        System.out.println("response: " + response);
+
         assertThat("Response status code", response.getStatus(), is(500));
         assertThat("Response Content-Length", response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
         assertThat("Response Content-Type", response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=UTF-8"));
@@ -565,5 +662,62 @@ public class ErrorHandlerTest
             assertThat("content", content, containsString("Euro is &amp;euro; and \u20AC and %E2%82%AC"));
             // @checkstyle-enable-check : AvoidEscapedUnicodeCharacters
         }
+    }
+
+    @Test
+    public void testErrorContextRecycle() throws Exception
+    {
+        server.stop();
+        ContextHandlerCollection contexts = new ContextHandlerCollection();
+        server.setHandler(contexts);
+        ContextHandler context = new ContextHandler("/foo");
+        contexts.addHandler(context);
+        context.setErrorHandler(new ErrorHandler()
+        {
+            @Override
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            {
+                baseRequest.setHandled(true);
+                response.getOutputStream().println("Context Error");
+            }
+        });
+        context.setHandler(new AbstractHandler()
+        {
+            @Override
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            {
+                response.sendError(444);
+            }
+        });
+
+        server.setErrorHandler(new ErrorHandler()
+        {
+            @Override
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            {
+                baseRequest.setHandled(true);
+                response.getOutputStream().println("Server Error");
+            }
+        });
+
+        server.start();
+
+        LocalConnector.LocalEndPoint connection = connector.connect();
+        connection.addInputAndExecute(BufferUtil.toBuffer(
+            "GET /foo/test HTTP/1.1\r\n" +
+                "Host: Localhost\r\n" +
+                "\r\n"));
+        String response = connection.getResponse();
+
+        assertThat(response, containsString("HTTP/1.1 444 444"));
+        assertThat(response, containsString("Context Error"));
+
+        connection.addInputAndExecute(BufferUtil.toBuffer(
+            "GET /test HTTP/1.1\r\n" +
+                "Host: Localhost\r\n" +
+                "\r\n"));
+        response = connection.getResponse();
+        assertThat(response, containsString("HTTP/1.1 404 Not Found"));
+        assertThat(response, containsString("Server Error"));
     }
 }

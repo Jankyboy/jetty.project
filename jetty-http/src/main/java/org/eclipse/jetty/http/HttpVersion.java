@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,9 +15,8 @@ package org.eclipse.jetty.http;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.jetty.util.ArrayTrie;
+import org.eclipse.jetty.util.Index;
 import org.eclipse.jetty.util.StringUtil;
-import org.eclipse.jetty.util.Trie;
 
 public enum HttpVersion
 {
@@ -31,15 +25,10 @@ public enum HttpVersion
     HTTP_1_1("HTTP/1.1", 11),
     HTTP_2("HTTP/2.0", 20);
 
-    public static final Trie<HttpVersion> CACHE = new ArrayTrie<HttpVersion>();
-
-    static
-    {
-        for (HttpVersion version : HttpVersion.values())
-        {
-            CACHE.put(version.toString(), version);
-        }
-    }
+    public static final Index<HttpVersion> CACHE = new Index.Builder<HttpVersion>()
+        .caseSensitive(false)
+        .withAll(HttpVersion.values(), HttpVersion::toString)
+        .build();
 
     /**
      * Optimised lookup to find an Http Version and whitespace in a byte array.

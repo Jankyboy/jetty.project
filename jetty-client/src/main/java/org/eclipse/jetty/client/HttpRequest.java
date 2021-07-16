@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -40,6 +35,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
@@ -82,7 +78,7 @@ public class HttpRequest implements Request
     private boolean versionExplicit;
     private long idleTimeout = -1;
     private long timeout;
-    private long timeoutAt;
+    private long timeoutAt = Long.MAX_VALUE;
     private Content content;
     private boolean followRedirects;
     private List<HttpCookie> cookies;
@@ -767,7 +763,7 @@ public class HttpRequest implements Request
     public ContentResponse send() throws InterruptedException, TimeoutException, ExecutionException
     {
         FutureResponseListener listener = new FutureResponseListener(this);
-        send(this, listener);
+        send(listener);
 
         try
         {
@@ -806,25 +802,31 @@ public class HttpRequest implements Request
     @Override
     public void send(Response.CompleteListener listener)
     {
-        send(this, listener);
+        sendAsync(client::send, listener);
     }
 
-    private void send(HttpRequest request, Response.CompleteListener listener)
+    void sendAsync(HttpDestination destination, Response.CompleteListener listener)
+    {
+        sendAsync(destination::send, listener);
+    }
+
+    private void sendAsync(BiConsumer<HttpRequest, List<Response.ResponseListener>> sender, Response.CompleteListener listener)
     {
         if (listener != null)
             responseListeners.add(listener);
         sent();
-        client.send(request, responseListeners);
+        sender.accept(this, responseListeners);
     }
 
     void sent()
     {
         long timeout = getTimeout();
-        timeoutAt = timeout > 0 ? System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout) : -1;
+        if (timeout > 0)
+            timeoutAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout);
     }
 
     /**
-     * @return The nanoTime at which the timeout expires or -1 if there is no timeout.
+     * @return The nanoTime at which the timeout expires or {@link Long#MAX_VALUE} if there is no timeout.
      * @see #timeout(long, TimeUnit)
      */
     long getTimeoutAt()

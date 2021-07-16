@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -19,7 +14,6 @@
 package org.eclipse.jetty.server;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -27,18 +21,20 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.servlet.DispatcherType;
+import java.util.stream.Stream;
 import javax.servlet.MultipartConfigElement;
 import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
@@ -56,12 +52,13 @@ import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.HttpCookie;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http.MimeTypes;
+import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.http.pathmap.ServletPathSpec;
-import org.eclipse.jetty.http.tools.HttpTester;
 import org.eclipse.jetty.logging.StacklessLogging;
 import org.eclipse.jetty.server.LocalConnector.LocalEndPoint;
 import org.eclipse.jetty.server.handler.AbstractHandler;
@@ -70,15 +67,15 @@ import org.eclipse.jetty.server.handler.ErrorHandler;
 import org.eclipse.jetty.server.session.Session;
 import org.eclipse.jetty.server.session.SessionData;
 import org.eclipse.jetty.server.session.SessionHandler;
-import org.eclipse.jetty.toolchain.test.FS;
-import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.IO;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -100,9 +97,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 // @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
+@ExtendWith(WorkDirExtension.class)
 public class RequestTest
 {
     private static final Logger LOG = LoggerFactory.getLogger(RequestTest.class);
+    public WorkDir workDir;
     private Server _server;
     private LocalConnector _connector;
     private RequestHandler _handler;
@@ -147,24 +146,20 @@ public class RequestTest
         ContextHandler handler = new CharEncodingContextHandler();
         _server.setHandler(handler);
         handler.setHandler(_handler);
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
+            try
             {
-                try
-                {
-                    String s = overrideCharEncoding.get();
-                    if (s != null)
-                        request.setCharacterEncoding(s);
+                String s = overrideCharEncoding.get();
+                if (s != null)
+                    request.setCharacterEncoding(s);
 
-                    result.set(request.getCharacterEncoding());
-                    return true;
-                }
-                catch (UnsupportedEncodingException e)
-                {
-                    return false;
-                }
+                result.set(request.getCharacterEncoding());
+                return true;
+            }
+            catch (UnsupportedEncodingException e)
+            {
+                return false;
             }
         };
         _server.start();
@@ -200,23 +195,19 @@ public class RequestTest
     @Test
     public void testParamExtraction() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
+            try
             {
-                try
-                {
-                    // do the parse
-                    request.getParameterMap();
-                    return false;
-                }
-                catch (BadMessageException e)
-                {
-                    // Should be able to retrieve the raw query
-                    String rawQuery = request.getQueryString();
-                    return rawQuery.equals("param=aaa%ZZbbb&other=value");
-                }
+                // do the parse
+                request.getParameterMap();
+                return false;
+            }
+            catch (BadMessageException e)
+            {
+                // Should be able to retrieve the raw query
+                String rawQuery = request.getQueryString();
+                return rawQuery.equals("param=aaa%ZZbbb&other=value");
             }
         };
 
@@ -235,15 +226,11 @@ public class RequestTest
     @Test
     public void testParamExtractionBadSequence() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
-            {
-                request.getParameterMap();
-                // should have thrown a BadMessageException
-                return false;
-            }
+            request.getParameterMap();
+            // should have thrown a BadMessageException
+            return false;
         };
 
         //Send a request with query string with illegal hex code to cause
@@ -261,15 +248,11 @@ public class RequestTest
     @Test
     public void testParamExtractionTimeout() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
-            {
-                request.getParameterMap();
-                // should have thrown a BadMessageException
-                return false;
-            }
+            request.getParameterMap();
+            // should have thrown a BadMessageException
+            return false;
         };
 
         //Send a request with query string with illegal hex code to cause
@@ -292,24 +275,20 @@ public class RequestTest
     @Test
     public void testEmptyHeaders() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
-            {
-                assertNotNull(request.getLocale());
-                assertTrue(request.getLocales().hasMoreElements()); // Default locale
-                assertEquals("", request.getContentType());
-                assertNull(request.getCharacterEncoding());
-                assertEquals(0, request.getQueryString().length());
-                assertEquals(-1, request.getContentLength());
-                assertNull(request.getCookies());
-                assertEquals("", request.getHeader("Name"));
-                assertTrue(request.getHeaders("Name").hasMoreElements()); // empty
-                assertThrows(IllegalArgumentException.class, () -> request.getDateHeader("Name"));
-                assertEquals(-1, request.getDateHeader("Other"));
-                return true;
-            }
+            assertNotNull(request.getLocale());
+            assertTrue(request.getLocales().hasMoreElements()); // Default locale
+            assertEquals("", request.getContentType());
+            assertNull(request.getCharacterEncoding());
+            assertEquals(0, request.getQueryString().length());
+            assertEquals(-1, request.getContentLength());
+            assertNull(request.getCookies());
+            assertEquals("", request.getHeader("Name"));
+            assertTrue(request.getHeaders("Name").hasMoreElements()); // empty
+            assertThrows(IllegalArgumentException.class, () -> request.getDateHeader("Name"));
+            assertEquals(-1, request.getDateHeader("Other"));
+            return true;
         };
 
         String request = "GET /? HTTP/1.1\r\n" +
@@ -328,26 +307,22 @@ public class RequestTest
     @Test
     public void testMultiPartNoConfig() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
+            try
             {
-                try
-                {
-                    request.getPart("stuff");
-                    return false;
-                }
-                catch (IllegalStateException e)
-                {
-                    //expected exception because no multipart config is set up
-                    assertTrue(e.getMessage().startsWith("No multipart config"));
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    return false;
-                }
+                request.getPart("stuff");
+                return false;
+            }
+            catch (IllegalStateException e)
+            {
+                //expected exception because no multipart config is set up
+                assertTrue(e.getMessage().startsWith("No multipart config"));
+                return true;
+            }
+            catch (Exception e)
+            {
+                return false;
             }
         };
 
@@ -377,28 +352,24 @@ public class RequestTest
     @Test
     public void testLocale() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                assertThat(request.getLocale().getLanguage(), is("da"));
-                Enumeration<Locale> locales = request.getLocales();
-                Locale locale = locales.nextElement();
-                assertThat(locale.getLanguage(), is("da"));
-                assertThat(locale.getCountry(), is(""));
-                locale = locales.nextElement();
-                assertThat(locale.getLanguage(), is("en"));
-                assertThat(locale.getCountry(), is("AU"));
-                locale = locales.nextElement();
-                assertThat(locale.getLanguage(), is("en"));
-                assertThat(locale.getCountry(), is("GB"));
-                locale = locales.nextElement();
-                assertThat(locale.getLanguage(), is("en"));
-                assertThat(locale.getCountry(), is(""));
-                assertFalse(locales.hasMoreElements());
-                return true;
-            }
+            assertThat(request.getLocale().getLanguage(), is("da"));
+            Enumeration<Locale> locales = request.getLocales();
+            Locale locale = locales.nextElement();
+            assertThat(locale.getLanguage(), is("da"));
+            assertThat(locale.getCountry(), is(""));
+            locale = locales.nextElement();
+            assertThat(locale.getLanguage(), is("en"));
+            assertThat(locale.getCountry(), is("AU"));
+            locale = locales.nextElement();
+            assertThat(locale.getLanguage(), is("en"));
+            assertThat(locale.getCountry(), is("GB"));
+            locale = locales.nextElement();
+            assertThat(locale.getLanguage(), is("en"));
+            assertThat(locale.getCountry(), is(""));
+            assertFalse(locales.hasMoreElements());
+            return true;
         };
 
         String request = "GET / HTTP/1.1\r\n" +
@@ -414,20 +385,21 @@ public class RequestTest
     @Test
     public void testMultiPart() throws Exception
     {
-        final File testTmpDir = File.createTempFile("reqtest", null);
-        if (testTmpDir.exists())
-            testTmpDir.delete();
-        testTmpDir.mkdir();
-        testTmpDir.deleteOnExit();
-        assertTrue(testTmpDir.list().length == 0);
+        Path testTmpDir = workDir.getEmptyPathDir();
 
         // We should have two tmp files after parsing the multipart form.
-        RequestTester tester = (request, response) -> testTmpDir.list().length == 2;
+        RequestTester tester = (request, response) ->
+        {
+            try (Stream<Path> s = Files.list(testTmpDir))
+            {
+                return s.count() == 2;
+            }
+        };
 
         ContextHandler contextHandler = new ContextHandler();
         contextHandler.setContextPath("/foo");
         contextHandler.setResourceBase(".");
-        contextHandler.setHandler(new MultiPartRequestHandler(testTmpDir, tester));
+        contextHandler.setHandler(new MultiPartRequestHandler(testTmpDir.toFile(), tester));
         _server.stop();
         _server.setHandler(contextHandler);
         _server.start();
@@ -462,19 +434,14 @@ public class RequestTest
 
         endPoint.addInput(cleanupRequest);
         assertTrue(endPoint.getResponse().startsWith("HTTP/1.1 200"));
-        assertThat(testTmpDir.list().length, is(0));
+        assertThat("File Count in dir: " + testTmpDir, getFileCount(testTmpDir), is(0L));
     }
 
     @Test
     public void testBadMultiPart() throws Exception
     {
         //a bad multipart where one of the fields has no name
-        final File testTmpDir = File.createTempFile("badmptest", null);
-        if (testTmpDir.exists())
-            testTmpDir.delete();
-        testTmpDir.mkdir();
-        testTmpDir.deleteOnExit();
-        assertTrue(testTmpDir.list().length == 0);
+        Path testTmpDir = workDir.getEmptyPathDir();
 
         ContextHandler contextHandler = new ContextHandler();
         contextHandler.setContextPath("/foo");
@@ -504,7 +471,7 @@ public class RequestTest
             multipart;
 
         LocalEndPoint endPoint = _connector.connect();
-        try (StacklessLogging stackless = new StacklessLogging(HttpChannel.class))
+        try (StacklessLogging ignored = new StacklessLogging(HttpChannel.class))
         {
             endPoint.addInput(request);
             assertTrue(endPoint.getResponse().startsWith("HTTP/1.1 500"));
@@ -513,7 +480,7 @@ public class RequestTest
         // Wait for the cleanup of the multipart files.
         assertTimeoutPreemptively(Duration.ofSeconds(5), () ->
         {
-            while (testTmpDir.list().length > 0)
+            while (getFileCount(testTmpDir)  > 0)
             {
                 Thread.yield();
             }
@@ -523,23 +490,19 @@ public class RequestTest
     @Test
     public void testBadUtf8ParamExtraction() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
+            try
             {
-                try
-                {
-                    // This throws an exception if attempted
-                    request.getParameter("param");
-                    return false;
-                }
-                catch (BadMessageException e)
-                {
-                    // Should still be able to get the raw query.
-                    String rawQuery = request.getQueryString();
-                    return rawQuery.equals("param=aaa%E7bbb");
-                }
+                // This throws an exception if attempted
+                request.getParameter("param");
+                return false;
+            }
+            catch (BadMessageException e)
+            {
+                // Should still be able to get the raw query.
+                String rawQuery = request.getQueryString();
+                return rawQuery.equals("param=aaa%E7bbb");
             }
         };
 
@@ -559,21 +522,17 @@ public class RequestTest
     @Test
     public void testEncodedParamExtraction() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
+            try
             {
-                try
-                {
-                    // This throws an exception if attempted
-                    request.getParameter("param");
-                    return false;
-                }
-                catch (BadMessageException e)
-                {
-                    return e.getCode() == 415;
-                }
+                // This throws an exception if attempted
+                request.getParameter("param");
+                return false;
+            }
+            catch (BadMessageException e)
+            {
+                return e.getCode() == 415;
             }
         };
 
@@ -704,15 +663,11 @@ public class RequestTest
     public void testContentTypeEncoding() throws Exception
     {
         final ArrayList<String> results = new ArrayList<>();
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
-            {
-                results.add(request.getContentType());
-                results.add(request.getCharacterEncoding());
-                return true;
-            }
+            results.add(request.getContentType());
+            results.add(request.getCharacterEncoding());
+            return true;
         };
 
         LocalEndPoint endp = _connector.executeRequest(
@@ -745,7 +700,7 @@ public class RequestTest
 
         int i = 0;
         assertEquals("text/test", results.get(i++));
-        assertEquals(null, results.get(i++));
+        assertNull(results.get(i++));
 
         assertEquals("text/html;charset=utf8", results.get(i++));
         assertEquals("utf-8", results.get(i++));
@@ -754,27 +709,22 @@ public class RequestTest
         assertEquals("utf-8", results.get(i++));
 
         assertTrue(results.get(i++).startsWith("text/html"));
-        assertEquals(" x=z; ", results.get(i++));
+        assertEquals(" x=z; ", results.get(i));
     }
 
     @Test
     public void testHostPort() throws Exception
     {
         final ArrayList<String> results = new ArrayList<>();
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
-            {
-                results.add(request.getRequestURL().toString());
-                results.add(request.getRemoteAddr());
-                results.add(request.getServerName());
-                results.add(String.valueOf(request.getServerPort()));
-                return true;
-            }
+            results.add(request.getRequestURL().toString());
+            results.add(request.getRemoteAddr());
+            results.add(request.getServerName());
+            results.add(String.valueOf(request.getServerPort()));
+            return true;
         };
 
-        results.clear();
         String response = _connector.getResponse(
             "GET / HTTP/1.1\n" +
                 "Host: myhost\n" +
@@ -785,7 +735,7 @@ public class RequestTest
         assertEquals("http://myhost/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("myhost", results.get(i++));
-        assertEquals("80", results.get(i++));
+        assertEquals("80", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -798,7 +748,7 @@ public class RequestTest
         assertEquals("http://myhost:8888/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("myhost", results.get(i++));
-        assertEquals("8888", results.get(i++));
+        assertEquals("8888", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -809,7 +759,7 @@ public class RequestTest
         assertEquals("http://myhost:8888/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("myhost", results.get(i++));
-        assertEquals("8888", results.get(i++));
+        assertEquals("8888", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -822,7 +772,7 @@ public class RequestTest
         assertEquals("http://myhost:8888/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("myhost", results.get(i++));
-        assertEquals("8888", results.get(i++));
+        assertEquals("8888", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -836,7 +786,7 @@ public class RequestTest
         assertEquals("http://1.2.3.4/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("1.2.3.4", results.get(i++));
-        assertEquals("80", results.get(i++));
+        assertEquals("80", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -849,7 +799,7 @@ public class RequestTest
         assertEquals("http://1.2.3.4:8888/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("1.2.3.4", results.get(i++));
-        assertEquals("8888", results.get(i++));
+        assertEquals("8888", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -862,7 +812,7 @@ public class RequestTest
         assertEquals("http://[::1]/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("[::1]", results.get(i++));
-        assertEquals("80", results.get(i++));
+        assertEquals("80", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -875,7 +825,7 @@ public class RequestTest
         assertEquals("http://[::1]:8888/", results.get(i++));
         assertEquals("0.0.0.0", results.get(i++));
         assertEquals("[::1]", results.get(i++));
-        assertEquals("8888", results.get(i++));
+        assertEquals("8888", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -890,7 +840,7 @@ public class RequestTest
         assertEquals("https://[::1]/", results.get(i++));
         assertEquals("remote", results.get(i++));
         assertEquals("[::1]", results.get(i++));
-        assertEquals("443", results.get(i++));
+        assertEquals("443", results.get(i));
 
         results.clear();
         response = _connector.getResponse(
@@ -905,7 +855,7 @@ public class RequestTest
         assertEquals("https://[::1]:8888/", results.get(i++));
         assertEquals("remote", results.get(i++));
         assertEquals("[::1]", results.get(i++));
-        assertEquals("8888", results.get(i++));
+        assertEquals("8888", results.get(i));
     }
 
     @Test
@@ -913,28 +863,24 @@ public class RequestTest
     {
         final AtomicInteger length = new AtomicInteger();
 
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
+            int len = request.getContentLength();
+            ServletInputStream in = request.getInputStream();
+            for (int i = 0; i < len; i++)
             {
-                int len = request.getContentLength();
-                ServletInputStream in = request.getInputStream();
-                for (int i = 0; i < len; i++)
-                {
-                    int b = in.read();
-                    if (b < 0)
-                        return false;
-                }
-                if (in.read() > 0)
+                int b = in.read();
+                if (b < 0)
                     return false;
-
-                length.set(len);
-                return true;
             }
+            if (in.read() > 0)
+                return false;
+
+            length.set(len);
+            return true;
         };
 
-        String content = "";
+        StringBuilder content = new StringBuilder();
 
         for (int l = 0; l < 1024; l++)
         {
@@ -950,21 +896,17 @@ public class RequestTest
             LOG.debug(response);
             assertThat(response, containsString(" 200 OK"));
             assertEquals(l, length.get());
-            content += "x";
+            content.append("x");
         }
     }
 
     @Test
     public void testEncodedForm() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                String actual = request.getParameter("name2");
-                return "test2".equals(actual);
-            }
+            String actual = request.getParameter("name2");
+            return "test2".equals(actual);
         };
 
         String content = "name1=test&name2=test2&name3=&name4=test";
@@ -982,14 +924,7 @@ public class RequestTest
     @Test
     public void testEncodedFormUnknownMethod() throws Exception
     {
-        _handler._checker = new RequestTester()
-        {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                return request.getParameter("name1") == null && request.getParameter("name2") == null && request.getParameter("name3") == null;
-            }
-        };
+        _handler._checker = (request, response) -> request.getParameter("name1") == null && request.getParameter("name2") == null && request.getParameter("name3") == null;
 
         String content = "name1=test&name2=test2&name3=&name4=test";
         String request = "UNKNOWN / HTTP/1.1\r\n" +
@@ -1006,14 +941,10 @@ public class RequestTest
     @Test
     public void testEncodedFormExtraMethod() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                String actual = request.getParameter("name2");
-                return "test2".equals(actual);
-            }
+            String actual = request.getParameter("name2");
+            return "test2".equals(actual);
         };
 
         _connector.getConnectionFactory(HttpConnectionFactory.class).getHttpConfiguration().addFormEncodedMethod("Extra");
@@ -1032,17 +963,13 @@ public class RequestTest
     @Test
     public void test8859EncodedForm() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                // Should be "testä"
-                // "test" followed by a LATIN SMALL LETTER A WITH DIAERESIS
-                request.setCharacterEncoding(StandardCharsets.ISO_8859_1.name());
-                String actual = request.getParameter("name2");
-                return "test\u00e4".equals(actual);
-            }
+            // Should be "testä"
+            // "test" followed by a LATIN SMALL LETTER A WITH DIAERESIS
+            request.setCharacterEncoding(StandardCharsets.ISO_8859_1.name());
+            String actual = request.getParameter("name2");
+            return "test\u00e4".equals(actual);
         };
 
         String content = "name1=test&name2=test%E4&name3=&name4=test";
@@ -1060,17 +987,13 @@ public class RequestTest
     @Test
     public void testUTF8EncodedForm() throws Exception
     {
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                // http://www.ltg.ed.ac.uk/~richard/utf-8.cgi?input=00e4&mode=hex
-                // Should be "testä"
-                // "test" followed by a LATIN SMALL LETTER A WITH DIAERESIS
-                String actual = request.getParameter("name2");
-                return "test\u00e4".equals(actual);
-            }
+            // http://www.ltg.ed.ac.uk/~richard/utf-8.cgi?input=00e4&mode=hex
+            // Should be "testä"
+            // "test" followed by a LATIN SMALL LETTER A WITH DIAERESIS
+            String actual = request.getParameter("name2");
+            return "test\u00e4".equals(actual);
         };
 
         String content = "name1=test&name2=test%C3%A4&name3=&name4=test";
@@ -1086,83 +1009,12 @@ public class RequestTest
     }
 
     @Test
-    @Disabled("See issue #1175")
-    public void testMultiPartFormDataReadInputThenParams() throws Exception
-    {
-        final File tmpdir = MavenTestingUtils.getTargetTestingDir("multipart");
-        FS.ensureEmpty(tmpdir);
-
-        Handler handler = new AbstractHandler()
-        {
-            @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException,
-                ServletException
-            {
-                if (baseRequest.getDispatcherType() != DispatcherType.REQUEST)
-                    return;
-
-                // Fake a @MultiPartConfig'd servlet endpoint
-                MultipartConfigElement multipartConfig = new MultipartConfigElement(tmpdir.getAbsolutePath());
-                request.setAttribute(Request.__MULTIPART_CONFIG_ELEMENT, multipartConfig);
-
-                // Normal processing
-                baseRequest.setHandled(true);
-
-                // Fake the commons-fileupload behavior
-                int length = request.getContentLength();
-                InputStream in = request.getInputStream();
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                IO.copy(in, out, length); // KEY STEP (Don't Change!) commons-fileupload does not read to EOF
-
-                // Record what happened as servlet response headers
-                response.setIntHeader("x-request-content-length", request.getContentLength());
-                response.setIntHeader("x-request-content-read", out.size());
-                String foo = request.getParameter("foo"); // uri query parameter
-                String bar = request.getParameter("bar"); // form-data content parameter
-                response.setHeader("x-foo", foo == null ? "null" : foo);
-                response.setHeader("x-bar", bar == null ? "null" : bar);
-            }
-        };
-
-        _server.stop();
-        _server.setHandler(handler);
-        _server.start();
-
-        String multipart = "--AaBbCc\r\n" +
-            "content-disposition: form-data; name=\"bar\"\r\n" +
-            "\r\n" +
-            "BarContent\r\n" +
-            "--AaBbCc\r\n" +
-            "content-disposition: form-data; name=\"stuff\"\r\n" +
-            "Content-Type: text/plain;charset=ISO-8859-1\r\n" +
-            "\r\n" +
-            "000000000000000000000000000000000000000000000000000\r\n" +
-            "--AaBbCc--\r\n";
-
-        String request = "POST /?foo=FooUri HTTP/1.1\r\n" +
-            "Host: whatever\r\n" +
-            "Content-Type: multipart/form-data; boundary=\"AaBbCc\"\r\n" +
-            "Content-Length: " + multipart.getBytes().length + "\r\n" +
-            "Connection: close\r\n" +
-            "\r\n" +
-            multipart;
-
-        HttpTester.Response response = HttpTester.parseResponse(_connector.getResponse(request));
-
-        // It should always be possible to read query string
-        assertThat("response.x-foo", response.get("x-foo"), is("FooUri"));
-        // Not possible to read request content parameters?
-        assertThat("response.x-bar", response.get("x-bar"), is("null")); // TODO: should this work?
-    }
-
-    @Test
     public void testPartialRead() throws Exception
     {
         Handler handler = new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException,
-                ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
                 Reader reader = request.getReader();
@@ -1207,8 +1059,7 @@ public class RequestTest
         Handler handler = new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException,
-                ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
                 Reader reader = request.getReader();
@@ -1244,8 +1095,7 @@ public class RequestTest
         Handler handler = new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException,
-                ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
                 response.sendRedirect("/foo");
@@ -1281,8 +1131,7 @@ public class RequestTest
         Handler handler = new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException,
-                ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
                 InputStream in = request.getInputStream();
@@ -1325,14 +1174,10 @@ public class RequestTest
     {
         String response;
 
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response1) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                response.getOutputStream().println("Hello World");
-                return true;
-            }
+            response1.getOutputStream().println("Hello World");
+            return true;
         };
 
         response = _connector.getResponse(
@@ -1395,16 +1240,12 @@ public class RequestTest
         assertThat(response, containsString("Connection: keep-alive"));
         assertThat(response, containsString("Hello World"));
 
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response12) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                response.setHeader("Connection", "TE");
-                response.addHeader("Connection", "Other");
-                response.getOutputStream().println("Hello World");
-                return true;
-            }
+            response12.setHeader("Connection", "TE");
+            response12.addHeader("Connection", "Other");
+            response12.getOutputStream().println("Hello World");
+            return true;
         };
 
         response = _connector.getResponse(
@@ -1433,22 +1274,17 @@ public class RequestTest
     {
         final ArrayList<Cookie> cookies = new ArrayList<>();
 
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                javax.servlet.http.Cookie[] ca = request.getCookies();
-                if (ca != null)
-                    cookies.addAll(Arrays.asList(ca));
-                response.getOutputStream().println("Hello World");
-                return true;
-            }
+            Cookie[] ca = request.getCookies();
+            if (ca != null)
+                cookies.addAll(Arrays.asList(ca));
+            response.getOutputStream().println("Hello World");
+            return true;
         };
 
         String response;
 
-        cookies.clear();
         response = _connector.getResponse(
             "GET / HTTP/1.1\n" +
                 "Host: whatever\n" +
@@ -1561,22 +1397,17 @@ public class RequestTest
     {
         final ArrayList<Cookie> cookies = new ArrayList<>();
 
-        _handler._checker = new RequestTester()
+        _handler._checker = (request, response) ->
         {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
-            {
-                javax.servlet.http.Cookie[] ca = request.getCookies();
-                if (ca != null)
-                    cookies.addAll(Arrays.asList(ca));
-                response.getOutputStream().println("Hello World");
-                return true;
-            }
+            Cookie[] ca = request.getCookies();
+            if (ca != null)
+                cookies.addAll(Arrays.asList(ca));
+            response.getOutputStream().println("Hello World");
+            return true;
         };
 
         String response;
 
-        cookies.clear();
         response = _connector.getResponse(
             "GET / HTTP/1.1\n" +
                 "Host: whatever\n" +
@@ -1591,82 +1422,86 @@ public class RequestTest
         assertEquals("value", cookies.get(0).getValue());
     }
 
-    @Disabled("No longer relevant")
     @Test
     public void testCookieLeak() throws Exception
     {
-        final String[] cookie = new String[10];
+        CookieRequestTester tester = new CookieRequestTester();
+        _handler._checker = tester;
 
-        _handler._checker = new RequestTester()
-        {
-            @Override
-            public boolean check(HttpServletRequest request, HttpServletResponse response)
-            {
-                for (int i = 0; i < cookie.length; i++)
-                {
-                    cookie[i] = null;
-                }
-
-                Cookie[] cookies = request.getCookies();
-                for (int i = 0; cookies != null && i < cookies.length; i++)
-                {
-                    cookie[i] = cookies[i].getValue();
-                }
-                return true;
-            }
-        };
-
-        String request = "POST / HTTP/1.1\r\n" +
+        String[] cookies = new String[10];
+        tester.setCookieArray(cookies);
+        LocalEndPoint endp = _connector.connect();
+        endp.addInput("POST / HTTP/1.1\r\n" +
             "Host: whatever\r\n" +
             "Cookie: other=cookie\r\n" +
-            "\r\n" +
-            "POST / HTTP/1.1\r\n" +
+            "\r\n");
+        endp.getResponse();
+        assertEquals("cookie", cookies[0]);
+        assertNull(cookies[1]);
+
+        cookies = new String[10];
+        tester.setCookieArray(cookies);
+        endp.addInput("POST / HTTP/1.1\r\n" +
             "Host: whatever\r\n" +
             "Cookie: name=value\r\n" +
             "Connection: close\r\n" +
-            "\r\n";
+            "\r\n");
+        endp.getResponse();
+        assertEquals("value", cookies[0]);
+        assertNull(cookies[1]);
 
-        _connector.getResponse(request);
-
-        assertEquals("value", cookie[0]);
-        assertEquals(null, cookie[1]);
-
-        request = "POST / HTTP/1.1\r\n" +
+        endp = _connector.connect();
+        cookies = new String[10];
+        tester.setCookieArray(cookies);
+        endp.addInput("POST / HTTP/1.1\r\n" +
             "Host: whatever\r\n" +
             "Cookie: name=value\r\n" +
-            "\r\n" +
-            "POST / HTTP/1.1\r\n" +
+            "\r\n");
+        endp.getResponse();
+        assertEquals("value", cookies[0]);
+        assertNull(cookies[1]);
+
+        cookies = new String[10];
+        tester.setCookieArray(cookies);
+        endp.addInput("POST / HTTP/1.1\r\n" +
             "Host: whatever\r\n" +
             "Cookie: \r\n" +
             "Connection: close\r\n" +
-            "\r\n";
+            "\r\n");
+        endp.getResponse();
+        assertNull(cookies[0]);
+        assertNull(cookies[1]);
 
-        _connector.getResponse(request);
-        assertEquals(null, cookie[0]);
-        assertEquals(null, cookie[1]);
-
-        request = "POST / HTTP/1.1\r\n" +
+        endp = _connector.connect();
+        cookies = new String[10];
+        tester.setCookieArray(cookies);
+        endp.addInput("POST / HTTP/1.1\r\n" +
             "Host: whatever\r\n" +
             "Cookie: name=value\r\n" +
             "Cookie: other=cookie\r\n" +
-            "\r\n" +
-            "POST / HTTP/1.1\r\n" +
+            "\r\n");
+        endp.getResponse();
+        assertEquals("value", cookies[0]);
+        assertEquals("cookie", cookies[1]);
+        assertNull(cookies[2]);
+
+        cookies = new String[10];
+        tester.setCookieArray(cookies);
+        endp.addInput("POST / HTTP/1.1\r\n" +
             "Host: whatever\r\n" +
             "Cookie: name=value\r\n" +
             "Cookie:\r\n" +
             "Connection: close\r\n" +
-            "\r\n";
-
-        _connector.getResponse(request);
-
-        assertEquals("value", cookie[0]);
-        assertEquals(null, cookie[1]);
+            "\r\n");
+        endp.getResponse();
+        assertEquals("value", cookies[0]);
+        assertNull(cookies[1]);
     }
 
     @Test
     public void testHashDOSKeys() throws Exception
     {
-        try (StacklessLogging stackless = new StacklessLogging(HttpChannel.class))
+        try (StacklessLogging ignored = new StacklessLogging(HttpChannel.class))
         {
             // Expecting maxFormKeys limit and Closing HttpParser exceptions...
             _server.setAttribute("org.eclipse.jetty.server.Request.maxFormContentSize", -1);
@@ -1682,7 +1517,7 @@ public class RequestTest
                 // Using real evil keys!
                 try (BufferedReader in = new BufferedReader(new FileReader(evilKeys)))
                 {
-                    String key = null;
+                    String key;
                     while ((key = in.readLine()) != null)
                     {
                         buf.append("&").append(key).append("=").append("x");
@@ -1699,14 +1534,7 @@ public class RequestTest
             }
             buf.append("&c=d");
 
-            _handler._checker = new RequestTester()
-            {
-                @Override
-                public boolean check(HttpServletRequest request, HttpServletResponse response)
-                {
-                    return "b".equals(request.getParameter("a")) && request.getParameter("c") == null;
-                }
-            };
+            _handler._checker = (request, response) -> "b".equals(request.getParameter("a")) && request.getParameter("c") == null;
 
             String request = "POST / HTTP/1.1\r\n" +
                 "Host: whatever\r\n" +
@@ -1730,7 +1558,7 @@ public class RequestTest
     @Test
     public void testHashDOSSize() throws Exception
     {
-        try (StacklessLogging stackless = new StacklessLogging(HttpChannel.class))
+        try (StacklessLogging ignored = new StacklessLogging(HttpChannel.class))
         {
             LOG.info("Expecting maxFormSize limit and too much data exceptions...");
             _server.setAttribute("org.eclipse.jetty.server.Request.maxFormContentSize", 3396);
@@ -1745,14 +1573,7 @@ public class RequestTest
             }
             buf.append("&c=d");
 
-            _handler._checker = new RequestTester()
-            {
-                @Override
-                public boolean check(HttpServletRequest request, HttpServletResponse response)
-                {
-                    return "b".equals(request.getParameter("a")) && request.getParameter("c") == null;
-                }
-            };
+            _handler._checker = (request, response) -> "b".equals(request.getParameter("a")) && request.getParameter("c") == null;
 
             String request = "POST / HTTP/1.1\r\n" +
                 "Host: whatever\r\n" +
@@ -1774,7 +1595,7 @@ public class RequestTest
     }
 
     @Test
-    public void testNotSupportedCharacterEncoding() throws UnsupportedEncodingException
+    public void testNotSupportedCharacterEncoding()
     {
         Request request = new Request(null, null);
         assertThrows(UnsupportedEncodingException.class, () -> request.setCharacterEncoding("doesNotExist"));
@@ -1799,7 +1620,7 @@ public class RequestTest
 
         assertNotNull(request.getScheme());
         assertNotNull(request.getServerName());
-        assertNotNull(request.getServerPort());
+        request.getServerPort();
 
         assertNotNull(request.getAttributeNames());
         assertFalse(request.getAttributeNames().hasMoreElements());
@@ -1811,14 +1632,132 @@ public class RequestTest
         assertNotNull(request.getParameterMap());
         assertEquals(0, request.getParameterMap().size());
     }
+
+    @Test
+    public void testEncoding() throws Exception
+    {
+        _handler._checker = (request, response) -> "/foo/bar".equals(request.getPathInfo());
+        String request = "GET /f%6f%6F/b%u0061r HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.DEFAULT);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.LEGACY);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+    }
+
+    @Test
+    public void testAmbiguousParameters() throws Exception
+    {
+        _handler._checker = (request, response) -> true;
+        String request = "GET /ambiguous/..;/path HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.DEFAULT);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.LEGACY);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.RFC3986);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+    }
     
     @Test
-    public void testPushBuilder() throws Exception
+    public void testAmbiguousSegments() throws Exception
+    {
+        _handler._checker = (request, response) -> true;
+        String request = "GET /ambiguous/%2e%2e/path HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.DEFAULT);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.LEGACY);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.RFC3986);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+    }
+
+    @Test
+    public void testAmbiguousSeparators() throws Exception
+    {
+        _handler._checker = (request, response) -> true;
+        String request = "GET /ambiguous/%2f/path HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.DEFAULT);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(new UriCompliance("Test", EnumSet.noneOf(UriCompliance.Violation.class)));
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.LEGACY);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.RFC3986);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+    }
+
+    @Test
+    public void testAmbiguousPaths() throws Exception
+    {
+        _handler._checker = (request, response) ->
+        {
+            response.getOutputStream().println("servletPath=" + request.getServletPath());
+            response.getOutputStream().println("pathInfo=" + request.getPathInfo());
+            return true;
+        };
+        String request = "GET /unnormal/.././path/ambiguous%2f%2e%2e/%2e;/info HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.from(EnumSet.of(
+            UriCompliance.Violation.AMBIGUOUS_PATH_SEPARATOR,
+            UriCompliance.Violation.AMBIGUOUS_PATH_SEGMENT,
+            UriCompliance.Violation.AMBIGUOUS_PATH_PARAMETER)));
+        assertThat(_connector.getResponse(request), Matchers.allOf(
+            startsWith("HTTP/1.1 200"),
+            containsString("pathInfo=/path/info")));
+    }
+
+    @Test
+    public void testAmbiguousEncoding() throws Exception
+    {
+        _handler._checker = (request, response) -> true;
+        String request = "GET /ambiguous/encoded/%25/path HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.DEFAULT);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.LEGACY);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.RFC3986);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.UNSAFE);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+    }
+
+    @Test
+    public void testAmbiguousDoubleSlash() throws Exception
+    {
+        _handler._checker = (request, response) -> true;
+        String request = "GET /ambiguous/doubleSlash// HTTP/1.0\r\n" +
+            "Host: whatever\r\n" +
+            "\r\n";
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.DEFAULT);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.RFC3986_UNAMBIGUOUS);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 400"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.LEGACY);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.RFC3986);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+        _connector.getBean(HttpConnectionFactory.class).getHttpConfiguration().setUriCompliance(UriCompliance.UNSAFE);
+        assertThat(_connector.getResponse(request), startsWith("HTTP/1.1 200"));
+    }
+    
+    @Test
+    public void testPushBuilder()
     {
         String uri = "/foo/something";
         Request request = new TestRequest(null, null);
-        request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("good","thumbsup", 100), CookieCompliance.RFC6265));
-        request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("bonza","bewdy", 1), CookieCompliance.RFC6265));
+        request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("good", "thumbsup", 100), CookieCompliance.RFC6265));
+        request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("bonza", "bewdy", 1), CookieCompliance.RFC6265));
         request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("bad", "thumbsdown", 0), CookieCompliance.RFC6265));
         HttpFields.Mutable fields = HttpFields.build();
         fields.add(HttpHeader.AUTHORIZATION, "Basic foo");
@@ -1827,42 +1766,15 @@ public class RequestTest
         PushBuilder builder = request.newPushBuilder();
         assertNotNull(builder);
         assertEquals("GET", builder.getMethod());
-        assertThrows(NullPointerException.class, () ->
-        {
-            builder.method(null);
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("   ");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("POST");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("PUT");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("DELETE");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("CONNECT");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("OPTIONS");
-        });
-        assertThrows(IllegalArgumentException.class, () ->
-        {
-            builder.method("TRACE");
-        });
+        assertThrows(NullPointerException.class, () -> builder.method(null));
+        assertThrows(IllegalArgumentException.class, () -> builder.method(""));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("   "));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("POST"));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("PUT"));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("DELETE"));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("CONNECT"));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("OPTIONS"));
+        assertThrows(IllegalArgumentException.class, () -> builder.method("TRACE"));
         assertEquals(TestRequest.TEST_SESSION_ID, builder.getSessionId());
         builder.path("/foo/something-else.txt");
         assertEquals("/foo/something-else.txt", builder.getPath());
@@ -1874,7 +1786,26 @@ public class RequestTest
     }
 
     @Test
-    public void testServletPathMapping() throws Exception
+    public void testPushBuilderWithIdNoAuth()
+    {
+        String uri = "/foo/something";
+        Request request = new TestRequest(null, null)
+        {
+            @Override
+            public Principal getUserPrincipal()
+            {
+                return () -> "test";
+            }
+        };
+        HttpFields.Mutable fields = HttpFields.build();
+        request.setMetaData(new MetaData.Request("GET", HttpURI.from(uri), HttpVersion.HTTP_1_0, fields));
+        assertTrue(request.isPushSupported());
+        PushBuilder builder = request.newPushBuilder();
+        assertNotNull(builder);
+    }
+
+    @Test
+    public void testServletPathMapping()
     {
         ServletPathSpec spec;
         String uri;
@@ -1959,18 +1890,53 @@ public class RequestTest
         assertThat(m.getPathInfo(), is(spec.getPathInfo(uri)));
     }
 
+    private static long getFileCount(Path path)
+    {
+        try (Stream<Path> s = Files.list(path))
+        {
+            return s.count();
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException("Unable to get file list count: " + path, e);
+        }
+    }
+
     interface RequestTester
     {
         boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException;
     }
+
+    private static class CookieRequestTester implements RequestTester
+    {
+        private String[] _cookieValues;
+
+        public void setCookieArray(String[] cookieValues)
+        {
+            _cookieValues = cookieValues;
+        }
+
+        @Override
+        public boolean check(HttpServletRequest request, HttpServletResponse response) throws IOException
+        {
+            Arrays.fill(_cookieValues, null);
+
+            Cookie[] cookies = request.getCookies();
+            for (int i = 0; cookies != null && i < cookies.length; i++)
+            {
+                _cookieValues[i] = cookies[i].getValue();
+            }
+            return true;
+        }
+    }
     
-    private class TestRequest extends Request
+    private static class TestRequest extends Request
     {
         public static final String TEST_SESSION_ID = "abc123";
         Response _response = new Response(null, null);
         Cookie c1;
         Cookie c2;
-        
+
         public TestRequest(HttpChannel channel, HttpInput input)
         {
             super(channel, input);
@@ -1989,22 +1955,15 @@ public class RequestTest
         @Override
         public HttpSession getSession()
         {
-            return new Session(new SessionHandler(), new SessionData(TEST_SESSION_ID,  "", "0.0.0.0", 0, 0, 0, 300));
+            Session session = new Session(new SessionHandler(), new SessionData(TEST_SESSION_ID,  "", "0.0.0.0", 0, 0, 0, 300));
+            session.setResident(true); //necessary for session methods to not throw ISE
+            return session;
         }
 
         @Override
         public Principal getUserPrincipal()
         {
-            return new Principal()
-            {
-
-                @Override
-                public String getName()
-                {
-                    return "user";
-                }
-
-            };
+            return () -> "user";
         }
 
         @Override
@@ -2016,15 +1975,13 @@ public class RequestTest
         @Override
         public Cookie[] getCookies()
         {
-            return new Cookie[] {c1,c2};
+            return new Cookie[] {c1, c2};
         }
     }
 
-    private class RequestHandler extends AbstractHandler
+    private static class RequestHandler extends AbstractHandler
     {
         private RequestTester _checker;
-        @SuppressWarnings("unused")
-        private String _content;
 
         @Override
         public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
@@ -2034,7 +1991,7 @@ public class RequestTest
             if (request.getContentLength() > 0 &&
                 !request.getContentType().startsWith(MimeTypes.Type.FORM_ENCODED.asString()) &&
                 !request.getContentType().startsWith("multipart/form-data"))
-                _content = IO.toString(request.getInputStream());
+                assertNotNull(IO.toString(request.getInputStream()));
 
             if (_checker != null && _checker.check(request, response))
                 response.setStatus(200);
@@ -2043,7 +2000,7 @@ public class RequestTest
         }
     }
 
-    private class MultiPartRequestHandler extends AbstractHandler
+    private static class MultiPartRequestHandler extends AbstractHandler
     {
         RequestTester checker;
         File tmpDir;
@@ -2101,11 +2058,11 @@ public class RequestTest
         }
     }
 
-    private class BadMultiPartRequestHandler extends AbstractHandler
+    private static class BadMultiPartRequestHandler extends AbstractHandler
     {
-        File tmpDir;
+        final Path tmpDir;
 
-        public BadMultiPartRequestHandler(File tmpDir)
+        public BadMultiPartRequestHandler(Path tmpDir)
         {
             this.tmpDir = tmpDir;
         }
@@ -2122,8 +2079,7 @@ public class RequestTest
 
             try
             {
-
-                MultipartConfigElement mpce = new MultipartConfigElement(tmpDir.getAbsolutePath(), -1, -1, 2);
+                MultipartConfigElement mpce = new MultipartConfigElement(tmpDir.toString(), -1, -1, 2);
                 request.setAttribute(Request.__MULTIPART_CONFIG_ELEMENT, mpce);
 
                 //We should get an error when we getParams if there was a problem parsing the multipart
@@ -2134,44 +2090,6 @@ public class RequestTest
             {
                 response.sendError(500);
             }
-        }
-    }
-
-    private class TestUserIdentityScope implements UserIdentity.Scope
-    {
-        private ContextHandler _handler;
-        private String _contextPath;
-        private String _name;
-
-        public TestUserIdentityScope(ContextHandler handler, String contextPath, String name)
-        {
-            _handler = handler;
-            _contextPath = contextPath;
-            _name = name;
-        }
-
-        @Override
-        public ContextHandler getContextHandler()
-        {
-            return _handler;
-        }
-
-        @Override
-        public String getContextPath()
-        {
-            return _contextPath;
-        }
-
-        @Override
-        public String getName()
-        {
-            return _name;
-        }
-
-        @Override
-        public Map<String, String> getRoleRefMap()
-        {
-            return null;
         }
     }
 }

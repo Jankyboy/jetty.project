@@ -1,49 +1,49 @@
 //
-//  ========================================================================
-//  Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
-//  ------------------------------------------------------------------------
-//  All rights reserved. This program and the accompanying materials
-//  are made available under the terms of the Eclipse Public License v1.0
-//  and Apache License v2.0 which accompanies this distribution.
+// ========================================================================
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-//      The Eclipse Public License is available at
-//      http://www.eclipse.org/legal/epl-v10.html
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
-//      The Apache License v2.0 is available at
-//      http://www.opensource.org/licenses/apache2.0.php
-//
-//  You may elect to redistribute this code under either of these licenses.
-//  ========================================================================
+// SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
+// ========================================================================
 //
 
 package org.eclipse.jetty.server.session;
 
 import org.eclipse.jetty.session.infinispan.InfinispanSessionDataStoreFactory;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * ClusteredSerializedSessionScavengingTest
  */
+@ExtendWith(WorkDirExtension.class)
 public class ClusteredSerializedSessionScavengingTest extends AbstractClusteredSessionScavengingTest
 {
-    public static InfinispanTestSupport __testSupport;
+    public WorkDir workDir;
+    public static InfinispanTestSupport testSupport;
 
-    @BeforeAll
-    public static void setup() throws Exception
+    @BeforeEach
+    public void setup() throws Exception
     {
-        __testSupport = new InfinispanTestSupport();
-        __testSupport.setUseFileStore(true);
-        __testSupport.setSerializeSessionData(true);
-        __testSupport.setup();
+        testSupport = new InfinispanTestSupport();
+        testSupport.setUseFileStore(true);
+        testSupport.setSerializeSessionData(true);
+        testSupport.setup(workDir.getEmptyPathDir());
     }
 
-    @AfterAll
-    public static void teardown() throws Exception
+    @AfterEach
+    public void teardown() throws Exception
     {
-        if (__testSupport != null)
-            __testSupport.teardown();
+        if (testSupport != null)
+            testSupport.teardown();
     }
 
     @Override
@@ -61,7 +61,7 @@ public class ClusteredSerializedSessionScavengingTest extends AbstractClusteredS
     public SessionDataStoreFactory createSessionDataStoreFactory()
     {
         InfinispanSessionDataStoreFactory factory = new InfinispanSessionDataStoreFactory();
-        factory.setCache(__testSupport.getCache());
+        factory.setCache(testSupport.getCache());
         return factory;
     }
 }

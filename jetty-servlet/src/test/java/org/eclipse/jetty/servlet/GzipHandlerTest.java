@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -44,7 +39,8 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.eclipse.jetty.http.tools.HttpTester;
+import org.eclipse.jetty.http.CompressedContentFormat;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.server.HttpOutput;
 import org.eclipse.jetty.server.LocalConnector;
 import org.eclipse.jetty.server.Server;
@@ -87,7 +83,7 @@ public class GzipHandlerTest
     private static final String __micro = __content.substring(0, 10);
 
     private static final String __contentETag = String.format("W/\"%x\"", __content.hashCode());
-    private static final String __contentETagGzip = String.format("W/\"%x--gzip\"", __content.hashCode());
+    private static final String __contentETagGzip = String.format("W/\"%x" + CompressedContentFormat.GZIP.getEtagSuffix() + "\"", __content.hashCode());
     private static final String __icontent = "BEFORE" + __content + "AFTER";
 
     private Server _server;
@@ -590,7 +586,7 @@ public class GzipHandlerTest
         request.setURI("/ctx/content");
         request.setVersion("HTTP/1.0");
         request.setHeader("Host", "tester");
-        request.setHeader("If-Match", "WrongEtag--gzip");
+        request.setHeader("If-Match", "WrongEtag" + CompressedContentFormat.GZIP.getEtagSuffix());
         request.setHeader("accept-encoding", "gzip");
 
         response = HttpTester.parseResponse(_connector.getResponse(request.generate()));

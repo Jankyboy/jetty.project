@@ -1,7 +1,7 @@
 # DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
 
 [description]
-Capture jakarta-commons-logging events and bridge them to SLF4J.
+Captures jakarta-commons-logging events and bridges them to SLF4J.
 
 [tags]
 logging
@@ -14,7 +14,7 @@ logging
 commons-logging
 
 [files]
-maven://org.slf4j/jcl-over-slf4j/%{slf4j.version}|jcl-over-slf4j-${slf4j.version}.jar
+maven://org.slf4j/jcl-over-slf4j/${slf4j.version}|lib/logging/jcl-over-slf4j-${slf4j.version}.jar
 
 [lib]
 lib/logging/jcl-over-slf4j-${slf4j.version}.jar

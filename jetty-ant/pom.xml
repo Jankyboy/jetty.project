@@ -2,7 +2,7 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>10.0.0-SNAPSHOT</version>
+    <version>10.0.7-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-ant</artifactId>
@@ -15,18 +15,33 @@
   <build>
     <plugins>
       <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Require-Capability>
+              osgi.extender; filter:="(osgi.extender=osgi.serviceloader.registrar)"
+            </Require-Capability>
+            <Provide-Capability>
+              osgi.serviceloader; osgi.serviceloader=org.eclipse.jetty.webapp.Configuration
+            </Provide-Capability>
+          </instructions>
+        </configuration>
+      </plugin>
+      <plugin>
         <artifactId>maven-dependency-plugin</artifactId>
         <executions>
           <execution>
             <id>copy-lib-deps</id>
-            <phase>generate-resources</phase>
+            <phase>process-test-resources</phase>
             <goals>
               <goal>copy-dependencies</goal>
             </goals>
             <configuration>
               <includeGroupIds>org.eclipse.jetty</includeGroupIds>
-              <excludeGroupIds>org.eclipse.jetty.orbit,org.eclipse.jetty.websocket,org.eclipse.jetty.drafts</excludeGroupIds>
-              <excludeArtifactIds>jetty-all,jetty-start</excludeArtifactIds>
+              <excludeGroupIds>org.eclipse.jetty.orbit,org.eclipse.jetty.websocket</excludeGroupIds>
+              <excludeArtifactIds>jetty-start</excludeArtifactIds>
               <includeTypes>jar</includeTypes>
               <outputDirectory>${project.build.directory}/test-lib</outputDirectory>
             </configuration>

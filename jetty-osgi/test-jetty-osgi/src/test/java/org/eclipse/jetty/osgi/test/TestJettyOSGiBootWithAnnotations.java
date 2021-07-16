@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -86,10 +81,10 @@ public class TestJettyOSGiBootWithAnnotations
         List<Option> res = new ArrayList<>();
         res.add(mavenBundle().groupId("com.sun.activation").artifactId("javax.activation").version("1.2.0").noStart());
         res.add(mavenBundle().groupId("org.eclipse.jetty.orbit").artifactId("javax.mail.glassfish").version("1.4.1.v201005082020").noStart());
-        res.add(mavenBundle().groupId("org.eclipse.jetty.tests").artifactId("test-container-initializer").versionAsInProject());
-        res.add(mavenBundle().groupId("org.eclipse.jetty.tests").artifactId("test-mock-resources").versionAsInProject());
+        res.add(mavenBundle().groupId("org.eclipse.jetty.demos").artifactId("demo-container-initializer").versionAsInProject());
+        res.add(mavenBundle().groupId("org.eclipse.jetty.demos").artifactId("demo-mock-resources").versionAsInProject());
         //test webapp bundle
-        res.add(mavenBundle().groupId("org.eclipse.jetty.tests").artifactId("test-spec-webapp").classifier("webbundle").versionAsInProject());
+        res.add(mavenBundle().groupId("org.eclipse.jetty.demos").artifactId("demo-spec-webapp").classifier("webbundle").versionAsInProject());
         return res;
     }
 
@@ -110,7 +105,7 @@ public class TestJettyOSGiBootWithAnnotations
             assertEquals("Response status code", HttpStatus.OK_200, response.getStatus());
 
             String content = response.getContentAsString();
-            TestOSGiUtil.assertContains("Response contents", content, "Test WebApp");
+            TestOSGiUtil.assertContains("Response contents", content, "Test Specification WebApp");
 
             Request req = client.POST("http://127.0.0.1:" + port + "/test");
             response = req.send();

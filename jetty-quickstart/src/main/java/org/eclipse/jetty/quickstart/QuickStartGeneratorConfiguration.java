@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -48,6 +43,7 @@ import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.FilterMapping;
 import org.eclipse.jetty.servlet.ListenerHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler.JspConfig;
+import org.eclipse.jetty.servlet.ServletContextHandler.ServletContainerInitializerStarter;
 import org.eclipse.jetty.servlet.ServletHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.servlet.ServletMapping;
@@ -157,7 +153,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
         webappAttr.put("xmlns", "http://xmlns.jcp.org/xml/ns/javaee");
         webappAttr.put("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
         webappAttr.put("xsi:schemaLocation", "http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_" + (major + "_" + minor) + ".xsd");
-        webappAttr.put("metadata-complete", "true");
+        webappAttr.put("metadata-complete", Boolean.toString(context.getMetaData().isMetaDataComplete()));
         webappAttr.put("version", major + "." + minor);
 
         XmlAppendable out = new XmlAppendable(stream, "UTF-8");
@@ -173,7 +169,11 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
         // The library order
         addContextParamFromAttribute(context, out, ServletContext.ORDERED_LIBS);
         //the servlet container initializers
-        addContextParamFromAttribute(context, out, AnnotationConfiguration.CONTAINER_INITIALIZERS);
+        //addContextParamFromAttribute(context, out, AnnotationConfiguration.CONTAINER_INITIALIZERS);
+        //TODO think of better label rather than the unused attribute, also how to retrieve the scis
+        ServletContainerInitializerStarter sciStarter = context.getBean(ServletContainerInitializerStarter.class);
+        addContextParamFromCollection(context, out, AnnotationConfiguration.CONTAINER_INITIALIZERS,
+            sciStarter == null ? Collections.emptySet() : sciStarter.getServletContainerInitializerHolders());
         //the tlds discovered
         addContextParamFromAttribute(context, out, MetaInfConfiguration.METAINF_TLDS, normalizer);
         //the META-INF/resources discovered
@@ -241,7 +241,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
                 if (f != null && f.getSource() == Source.EMBEDDED)
                     continue;
                 
-                out.openTag("filter-mapping");
+                out.openTag("filter-mapping", origin(md, mapping.getFilterName() + ".filter.mapping." + Long.toHexString(mapping.hashCode())));
                 out.tag("filter-name", mapping.getFilterName());
                 if (mapping.getPathSpecs() != null)
                     for (String s : mapping.getPathSpecs())
@@ -289,7 +289,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
                 if (sh != null && sh.getSource() == Source.EMBEDDED)
                     continue;
                 
-                out.openTag("servlet-mapping", origin(md, mapping.getServletName() + ".servlet.mappings"));
+                out.openTag("servlet-mapping", origin(md, mapping.getServletName() + ".servlet.mapping." + Long.toHexString(mapping.hashCode())));
                 out.tag("servlet-name", mapping.getServletName());
                 if (mapping.getPathSpecs() != null)
                     for (String s : mapping.getPathSpecs())
@@ -327,7 +327,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
             ConstraintAware ca = (ConstraintAware)security;
             for (String r : ca.getRoles())
             {
-                out.openTag("security-role")
+                out.openTag("security-role", origin(md, "security-role." + r))
                     .tag("role-name", r)
                     .closeTag();
             }
@@ -398,7 +398,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
             out.openTag("welcome-file-list");
             for (String welcomeFile : context.getWelcomeFiles())
             {
-                out.tag("welcome-file", welcomeFile);
+                out.tag("welcome-file", origin(md, "welcome-file." + welcomeFile), welcomeFile);
             }
             out.closeTag();
         }
@@ -429,6 +429,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
             if (cookieConfig != null)
             {
                 out.openTag("cookie-config");
+                
                 if (cookieConfig.getName() != null)
                     out.tag("name", origin(md, "cookie-config.name"), cookieConfig.getName());
 
@@ -606,18 +607,14 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
         out.closeTag();
     }
 
-    /**
-     * Turn attribute into context-param to store.
-     */
-    private void addContextParamFromAttribute(WebAppContext context, XmlAppendable out, String attribute) throws IOException
+    private void addContextParamFromCollection(WebAppContext context, XmlAppendable out, String name, Collection<?> collection)
+        throws IOException
     {
-        Object o = context.getAttribute(attribute);
-        if (o == null)
+        if (collection == null)
             return;
 
-        Collection<?> c = (o instanceof Collection) ? (Collection<?>)o : Collections.singletonList(o);
         StringBuilder v = new StringBuilder();
-        for (Object i : c)
+        for (Object i : collection)
         {
             if (i != null)
             {
@@ -629,9 +626,22 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
             }
         }
         out.openTag("context-param")
-            .tag("param-name", attribute)
+            .tag("param-name", name)
             .tagCDATA("param-value", v.toString())
             .closeTag();
+    }
+    
+    /**
+     * Turn attribute into context-param to store.
+     */
+    private void addContextParamFromAttribute(WebAppContext context, XmlAppendable out, String attribute) throws IOException
+    {
+        Object o = context.getAttribute(attribute);
+        if (o == null)
+            return;
+
+        Collection<?> c = (o instanceof Collection) ? (Collection<?>)o : Collections.singletonList(o);
+        addContextParamFromCollection(context, out, attribute, c);
     }
 
     /**
@@ -789,6 +799,7 @@ public class QuickStartGeneratorConfiguration extends AbstractConfiguration
     public void preConfigure(WebAppContext context) throws Exception
     {
         ExtraXmlDescriptorProcessor extraXmlProcessor = new ExtraXmlDescriptorProcessor();
+        extraXmlProcessor.setOriginAttribute(getOriginAttribute());
         context.getMetaData().addDescriptorProcessor(extraXmlProcessor);
         context.setAttribute(ExtraXmlDescriptorProcessor.class.getName(), extraXmlProcessor);
         super.preConfigure(context);

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -50,7 +45,7 @@ import org.eclipse.jetty.http.HttpContent;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
-import org.eclipse.jetty.http.tools.HttpTester;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.logging.StacklessLogging;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.LocalConnector;
@@ -255,11 +250,8 @@ public class DefaultServletTest
         String resBasePath = docRoot.toAbsolutePath().toString();
         defholder.setInitParameter("resourceBase", resBasePath);
 
-        StringBuffer req1 = new StringBuffer();
-        req1.append("GET /context/one/deep/ HTTP/1.0\n");
-        req1.append("\n");
-
-        String rawResponse = connector.getResponse(req1.toString());
+        String req1 = "GET /context/one/deep/ HTTP/1.0\n\n";
+        String rawResponse = connector.getResponse(req1);
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
 
         assertThat(response.getStatus(), is(HttpStatus.OK_200));
@@ -457,9 +449,16 @@ public class DefaultServletTest
             );
 
             scenarios.addScenario(
+                "GET " + prefix + "/..;/..;/sekret/pass",
+                "GET " + prefix + "/..;/..;/sekret/pass HTTP/1.0\r\n\r\n",
+                prefix.endsWith("?") ? HttpStatus.NOT_FOUND_404 : HttpStatus.BAD_REQUEST_400,
+                (response) -> assertThat(response.getContent(), not(containsString("Sssh")))
+            );
+
+            scenarios.addScenario(
                 "GET " + prefix + "/%2E%2E/%2E%2E/sekret/pass",
-                "GET " + prefix + "/ HTTP/1.0\r\n\r\n",
-                HttpStatus.NOT_FOUND_404,
+                "GET " + prefix + "/%2E%2E/%2E%2E/sekret/pass HTTP/1.0\r\n\r\n",
+                prefix.endsWith("?") ? HttpStatus.NOT_FOUND_404 : HttpStatus.BAD_REQUEST_400,
                 (response) -> assertThat(response.getContent(), not(containsString("Sssh")))
             );
 
@@ -471,12 +470,6 @@ public class DefaultServletTest
                     "GET " + prefix + "/../index.html HTTP/1.0\r\n\r\n",
                     HttpStatus.NOT_FOUND_404
                 );
-
-                scenarios.addScenario(
-                    "GET " + prefix + "/%2E%2E/index.html",
-                    "GET " + prefix + "/%2E%2E/index.html HTTP/1.0\r\n\r\n",
-                    HttpStatus.NOT_FOUND_404
-                );
             }
             else
             {
@@ -486,14 +479,13 @@ public class DefaultServletTest
                     HttpStatus.OK_200,
                     (response) -> assertThat(response.getContent(), containsString("Hello Index"))
                 );
-
-                scenarios.addScenario(
-                    "GET " + prefix + "/%2E%2E/index.html",
-                    "GET " + prefix + "/%2E%2E/index.html HTTP/1.0\r\n\r\n",
-                    HttpStatus.OK_200,
-                    (response) -> assertThat(response.getContent(), containsString("Hello Index"))
-                );
             }
+
+            scenarios.addScenario(
+                "GET " + prefix + "/%2E%2E/index.html",
+                "GET " + prefix + "/%2E%2E/index.html HTTP/1.0\r\n\r\n",
+                prefix.endsWith("?") ? HttpStatus.NOT_FOUND_404 : HttpStatus.BAD_REQUEST_400
+            );
 
             scenarios.addScenario(
                 "GET " + prefix + "/../../",
@@ -1456,11 +1448,13 @@ public class DefaultServletTest
         Path image = docRoot.resolve("image.jpg");
         createFile(image, "not an image");
 
+        server.stop();
         ServletHolder defholder = context.addServlet(DefaultServlet.class, "/");
         defholder.setInitParameter("dirAllowed", "false");
         defholder.setInitParameter("redirectWelcome", "false");
         defholder.setInitParameter("welcomeServlets", "false");
         defholder.setInitParameter("gzip", "false");
+        server.start();
 
         String rawResponse;
         HttpTester.Response response;
@@ -2064,10 +2058,15 @@ public class DefaultServletTest
         context.addServlet(DefaultServlet.class, "/");
         context.addAliasCheck(new SameFileAliasChecker());
 
-        // UTF-8 NFC format
+        // Create file with UTF-8 NFC format
         String filename = "swedish-" + new String(TypeUtil.fromHexString("C3A5"), UTF_8) + ".txt";
         createFile(docRoot.resolve(filename), "hi a-with-circle");
 
+        // Using filesystem, attempt to access via NFD format
+        Path nfdPath = docRoot.resolve("swedish-a" + new String(TypeUtil.fromHexString("CC8A"), UTF_8) + ".txt");
+        boolean filesystemSupportsNFDAccess = Files.exists(nfdPath);
+
+        // Make requests
         String rawResponse;
         HttpTester.Response response;
 
@@ -2080,7 +2079,7 @@ public class DefaultServletTest
         // Request as UTF-8 NFD
         rawResponse = connector.getResponse("GET /context/swedish-a%CC%8A.txt HTTP/1.1\r\nHost:test\r\nConnection:close\r\n\r\n");
         response = HttpTester.parseResponse(rawResponse);
-        if (OS.MAC.isCurrentOs())
+        if (filesystemSupportsNFDAccess)
         {
             assertThat(response.getStatus(), is(HttpStatus.OK_200));
             assertThat(response.getContent(), is("hi a-with-circle"));
@@ -2099,9 +2098,13 @@ public class DefaultServletTest
         context.addServlet(DefaultServlet.class, "/");
         context.addAliasCheck(new SameFileAliasChecker());
 
-        // UTF-8 NFD format
-        String filename = "swedish-" + new String(TypeUtil.fromHexString("61CC8A"), UTF_8) + ".txt";
+        // Create file with UTF-8 NFD format
+        String filename = "swedish-a" + new String(TypeUtil.fromHexString("CC8A"), UTF_8) + ".txt";
         createFile(docRoot.resolve(filename), "hi a-with-circle");
+
+        // Using filesystem, attempt to access via NFC format
+        Path nfcPath = docRoot.resolve("swedish-" + new String(TypeUtil.fromHexString("C3A5"), UTF_8) + ".txt");
+        boolean filesystemSupportsNFCAccess = Files.exists(nfcPath);
 
         String rawResponse;
         HttpTester.Response response;
@@ -2115,7 +2118,7 @@ public class DefaultServletTest
         // Request as UTF-8 NFC
         rawResponse = connector.getResponse("GET /context/swedish-%C3%A5.txt HTTP/1.1\r\nHost:test\r\nConnection:close\r\n\r\n");
         response = HttpTester.parseResponse(rawResponse);
-        if (OS.MAC.isCurrentOs())
+        if (filesystemSupportsNFCAccess)
         {
             assertThat(response.getStatus(), is(HttpStatus.OK_200));
             assertThat(response.getContent(), is("hi a-with-circle"));

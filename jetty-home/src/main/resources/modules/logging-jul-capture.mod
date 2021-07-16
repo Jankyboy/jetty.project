@@ -1,7 +1,7 @@
 # DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
 
 [description]
-Capture java.util.logging events and bridge them to slf4j.
+Captures java.util.logging events and bridges them to slf4j.
 
 [tags]
 logging
@@ -13,14 +13,15 @@ logging
 [provides]
 java-util-logging
 
-[xml]
-etc/logging-jul-capture.xml
-
 [files]
-maven://org.slf4j/jul-to-slf4j/%{slf4j.version}|jul-to-slf4j-${slf4j.version}.jar
+maven://org.slf4j/jul-to-slf4j/${slf4j.version}|lib/logging/jul-to-slf4j-${slf4j.version}.jar
+basehome:modules/logging/jul/resources/java-util-logging-bridge.properties|resources/java-util-logging.properties
 
 [lib]
 lib/logging/jul-to-slf4j-${slf4j.version}.jar
+
+[exec]
+-Djava.util.logging.config.file=${jetty.base}/resources/java-util-logging.properties
 
 [license]
 SLF4J is distributed under the MIT License.

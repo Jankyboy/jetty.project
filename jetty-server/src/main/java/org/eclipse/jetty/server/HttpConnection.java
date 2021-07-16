@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -33,7 +28,6 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpParser;
-import org.eclipse.jetty.http.HttpParser.RequestHandler;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http.PreEncodedHttpField;
 import org.eclipse.jetty.io.AbstractConnection;
@@ -68,7 +62,6 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
     private final HttpParser _parser;
     private final AtomicInteger _contentBufferReferences = new AtomicInteger();
     private volatile ByteBuffer _requestBuffer = null;
-    private final BlockingReadCallback _blockingReadCallback = new BlockingReadCallback();
     private final AsyncReadCallback _asyncReadCallback = new AsyncReadCallback();
     private final SendCallback _sendCallback = new SendCallback();
     private final boolean _recordHttpComplianceViolations;
@@ -270,9 +263,7 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
             {
                 // Fill the request buffer (if needed).
                 int filled = fillRequestBuffer();
-                if (filled > 0)
-                    bytesIn.add(filled);
-                else if (filled == -1 && getEndPoint().isOutputShutdown())
+                if (filled < 0 && getEndPoint().isOutputShutdown())
                     close();
 
                 // Parse the request buffer.
@@ -307,6 +298,14 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
                 }
             }
         }
+        catch (Throwable x)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("{} caught exception {}", this, _channel.getState(), x);
+            BufferUtil.clear(_requestBuffer);
+            releaseRequestBuffer();
+            getEndPoint().close(x);
+        }
         finally
         {
             setCurrentConnection(last);
@@ -316,30 +315,31 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
     }
 
     /**
-     * Fill and parse data looking for content
-     *
-     * @return true if an {@link RequestHandler} method was called and it returned true;
+     * Parse and fill data, looking for content.
+     * We do parse first, and only fill if we're out of bytes to avoid unnecessary system calls.
      */
-    protected boolean fillAndParseForContent()
+    void parseAndFillForContent()
     {
-        boolean handled = false;
+        // When fillRequestBuffer() is called, it must always be followed by a parseRequestBuffer() call otherwise this method
+        // doesn't trigger EOF/earlyEOF which breaks AsyncRequestReadTest.testPartialReadThenShutdown().
+
+        // This loop was designed by a committee and voted by a majority.
         while (_parser.inContentState())
         {
-            int filled = fillRequestBuffer();
-            handled = parseRequestBuffer();
-            if (handled || filled <= 0 || _input.hasContent())
+            if (parseRequestBuffer())
+                break;
+            // Re-check the parser state after parsing to avoid filling,
+            // otherwise fillRequestBuffer() would acquire a ByteBuffer
+            // that may be leaked.
+            if (_parser.inContentState() && fillRequestBuffer() <= 0)
                 break;
         }
-        return handled;
     }
 
     private int fillRequestBuffer()
     {
         if (_contentBufferReferences.get() > 0)
-        {
-            LOG.warn("{} fill with unconsumed content!", this);
-            return 0;
-        }
+            throw new IllegalStateException("fill with unconsumed content on " + this);
 
         if (BufferUtil.isEmpty(_requestBuffer))
         {
@@ -355,8 +355,9 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
                 if (filled == 0) // Do a retry on fill 0 (optimization for SSL connections)
                     filled = getEndPoint().fill(_requestBuffer);
 
-                // tell parser
-                if (filled < 0)
+                if (filled > 0)
+                    bytesIn.add(filled);
+                else if (filled < 0)
                     _parser.atEOF();
 
                 if (LOG.isDebugEnabled())
@@ -366,7 +367,8 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
             }
             catch (IOException e)
             {
-                LOG.debug("Unable to fill from endpoint {}", getEndPoint(), e);
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Unable to fill from endpoint {}", getEndPoint(), e);
                 _parser.atEOF();
                 return -1;
             }
@@ -420,9 +422,21 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
     @Override
     public void onCompleted()
     {
-        // Handle connection upgrades.
-        if (upgrade())
-            return;
+        // If we are fill interested, then a read is pending and we must abort
+        if (isFillInterested())
+        {
+            LOG.warn("Pending read in onCompleted {} {}", this, getEndPoint());
+            _channel.abort(new IOException("Pending read in onCompleted"));
+        }
+        else
+        {
+            // Handle connection upgrades.
+            if (upgrade())
+                return;
+        }
+
+        // Drive to EOF, EarlyEOF or Error
+        boolean complete = _input.consumeAll();
 
         // Finish consuming the request
         // If we are still expecting
@@ -431,28 +445,12 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
             // close to seek EOF
             _parser.close();
         }
-        else if (_parser.inContentState() && _generator.isPersistent())
+        // else abort if we can't consume all
+        else if (_generator.isPersistent() && !complete)
         {
-            // Try to progress without filling.
-            parseRequestBuffer();
-            if (_parser.inContentState())
-            {
-                // If we are async, then we have problems to complete neatly
-                if (_input.isAsync())
-                {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("{}unconsumed input while async {}", _parser.isChunking() ? "Possible " : "", this);
-                    _channel.abort(new IOException("unconsumed input"));
-                }
-                else
-                {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("{}unconsumed input {}", _parser.isChunking() ? "Possible " : "", this);
-                    // Complete reading the request
-                    if (!_input.consumeAll())
-                        _channel.abort(new IOException("unconsumed input"));
-                }
-            }
+            if (LOG.isDebugEnabled())
+                LOG.debug("unconsumed input {} {}", this, _parser);
+            _channel.abort(new IOException("unconsumed input"));
         }
 
         // Reset the channel, parsers and generator
@@ -600,25 +598,7 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
 
     public void asyncReadFillInterested()
     {
-        getEndPoint().fillInterested(_asyncReadCallback);
-    }
-
-    public void blockingReadFillInterested()
-    {
-        // We try fillInterested here because of SSL and 
-        // spurious wakeups.  With  blocking reads, we read in a loop
-        // that tries to read/parse content and blocks waiting if there is
-        // none available.  The loop can be woken up by incoming encrypted 
-        // bytes, which due to SSL might not produce any decrypted bytes.
-        // Thus the loop needs to register fill interest again.  However if 
-        // the loop is woken up spuriously, then the register interest again
-        // can result in a pending read exception, unless we use tryFillInterested.
-        getEndPoint().tryFillInterested(_blockingReadCallback);
-    }
-
-    public void blockingReadFailure(Throwable e)
-    {
-        _blockingReadCallback.failed(e);
+        getEndPoint().tryFillInterested(_asyncReadCallback);
     }
 
     @Override
@@ -655,8 +635,15 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
         @Override
         public void succeeded()
         {
-            if (_contentBufferReferences.decrementAndGet() == 0)
+            int counter = _contentBufferReferences.decrementAndGet();
+            if (counter == 0)
                 releaseRequestBuffer();
+            // TODO: this should do something (warn? fail?) if _contentBufferReferences goes below 0
+            if (counter < 0)
+            {
+                LOG.warn("Content reference counting went below zero: {}", counter);
+                _contentBufferReferences.incrementAndGet();
+            }
         }
 
         @Override
@@ -666,43 +653,29 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
         }
     }
 
-    private class BlockingReadCallback implements Callback
-    {
-        @Override
-        public void succeeded()
-        {
-            _input.unblock();
-        }
-
-        @Override
-        public void failed(Throwable x)
-        {
-            _input.failed(x);
-        }
-
-        @Override
-        public InvocationType getInvocationType()
-        {
-            // This callback does not block, rather it wakes up the
-            // thread that is blocked waiting on the read.
-            return InvocationType.NON_BLOCKING;
-        }
-    }
-
     private class AsyncReadCallback implements Callback
     {
         @Override
         public void succeeded()
         {
-            if (_channel.getState().onReadPossible())
+            if (_channel.getRequest().getHttpInput().onContentProducible())
                 _channel.handle();
         }
 
         @Override
         public void failed(Throwable x)
         {
-            if (_input.failed(x))
+            if (_channel.failed(x))
                 _channel.handle();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            // This callback does not block when the HttpInput is in blocking mode,
+            // rather it wakes up the thread that is blocked waiting on the read;
+            // but it can if it is in async mode, hence the varying InvocationType.
+            return _channel.getRequest().getHttpInput().isAsync() ? InvocationType.BLOCKING : InvocationType.NON_BLOCKING;
         }
     }
 

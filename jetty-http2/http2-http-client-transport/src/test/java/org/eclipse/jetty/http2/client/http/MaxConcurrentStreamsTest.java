@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -19,7 +14,7 @@
 package org.eclipse.jetty.http2.client.http;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +23,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -37,12 +34,18 @@ import org.eclipse.jetty.client.AbstractConnectionPool;
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.HttpDestination;
 import org.eclipse.jetty.client.HttpResponseException;
+import org.eclipse.jetty.client.MultiplexConnectionPool;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
+import org.eclipse.jetty.client.util.BytesRequestContent;
+import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.http.HttpVersion;
+import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.Stream;
+import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.client.HTTP2Client;
 import org.eclipse.jetty.http2.frames.GoAwayFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
@@ -50,15 +53,23 @@ import org.eclipse.jetty.http2.frames.PingFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
+import org.eclipse.jetty.http2.server.RawHTTP2ServerConnectionFactory;
+import org.eclipse.jetty.io.AbstractEndPoint;
 import org.eclipse.jetty.io.ClientConnectionFactory;
+import org.eclipse.jetty.io.Connection;
+import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class MaxConcurrentStreamsTest extends AbstractTest
@@ -168,7 +179,7 @@ public class MaxConcurrentStreamsTest extends AbstractTest
         client = new HttpClient(new HttpClientTransportOverHTTP2(new HTTP2Client())
         {
             @Override
-            protected void connect(InetSocketAddress address, ClientConnectionFactory factory, Session.Listener listener, Promise<Session> promise, Map<String, Object> context)
+            protected void connect(SocketAddress address, ClientConnectionFactory factory, Session.Listener listener, Promise<Session> promise, Map<String, Object> context)
             {
                 super.connect(address, factory, new Wrapper(listener)
                 {
@@ -336,12 +347,28 @@ public class MaxConcurrentStreamsTest extends AbstractTest
             }
         });
 
+        int parallelism = 4;
+        int runs = 1;
+        int iterations = 32;
+
         client.setMaxConnectionsPerDestination(32768);
         client.setMaxRequestsQueuedPerDestination(1024 * 1024);
+        client.getTransport().setConnectionPoolFactory(destination ->
+        {
+            try
+            {
+                MultiplexConnectionPool pool = new MultiplexConnectionPool(destination, client.getMaxConnectionsPerDestination(), false, destination, 1);
+                pool.preCreateConnections(parallelism * 2).get();
+                return pool;
+            }
+            catch (Exception e)
+            {
+                throw new RuntimeException(e);
+            }
+        });
+        // Prime the destination to pre-create connections.
+        client.GET("http://localhost:" + connector.getLocalPort());
 
-        int parallelism = 16;
-        int runs = 1;
-        int iterations = 256;
         int total = parallelism * runs * iterations;
         CountDownLatch latch = new CountDownLatch(total);
         Queue<Result> failures = new ConcurrentLinkedQueue<>();
@@ -399,6 +426,118 @@ public class MaxConcurrentStreamsTest extends AbstractTest
         assertTrue(latch.await(2 * timeout, TimeUnit.MILLISECONDS));
     }
 
+    @Test
+    public void testTCPCongestedStreamTimesOut() throws Exception
+    {
+        CountDownLatch request1Latch = new CountDownLatch(1);
+        RawHTTP2ServerConnectionFactory http2 = new RawHTTP2ServerConnectionFactory(new HttpConfiguration(), new ServerSessionListener.Adapter()
+        {
+            @Override
+            public Stream.Listener onNewStream(Stream stream, HeadersFrame frame)
+            {
+                MetaData.Request request = (MetaData.Request)frame.getMetaData();
+                switch (request.getURI().getPath())
+                {
+                    case "/1":
+                    {
+                        // Do not return to cause TCP congestion.
+                        assertTrue(awaitLatch(request1Latch, 15, TimeUnit.SECONDS));
+                        MetaData.Response response1 = new MetaData.Response(HttpVersion.HTTP_2, HttpStatus.OK_200, HttpFields.EMPTY);
+                        stream.headers(new HeadersFrame(stream.getId(), response1, null, true), Callback.NOOP);
+                        break;
+                    }
+                    case "/3":
+                    {
+                        MetaData.Response response3 = new MetaData.Response(HttpVersion.HTTP_2, HttpStatus.OK_200, HttpFields.EMPTY);
+                        stream.headers(new HeadersFrame(stream.getId(), response3, null, true), Callback.NOOP);
+                        break;
+                    }
+                    default:
+                    {
+                        MetaData.Response response = new MetaData.Response(HttpVersion.HTTP_2, HttpStatus.INTERNAL_SERVER_ERROR_500, HttpFields.EMPTY);
+                        stream.headers(new HeadersFrame(stream.getId(), response, null, true), Callback.NOOP);
+                        break;
+                    }
+                }
+                // Return a Stream listener that consumes the content.
+                return new Stream.Listener.Adapter();
+            }
+        });
+        http2.setMaxConcurrentStreams(2);
+        // Set the HTTP/2 flow control windows very large so we can
+        // cause TCP congestion, not HTTP/2 flow control congestion.
+        http2.setInitialSessionRecvWindow(512 * 1024 * 1024);
+        http2.setInitialStreamRecvWindow(512 * 1024 * 1024);
+        prepareServer(http2);
+        server.start();
+
+        prepareClient();
+        AtomicReference<AbstractEndPoint> clientEndPointRef = new AtomicReference<>();
+        CountDownLatch clientEndPointLatch = new CountDownLatch(1);
+        client = new HttpClient(new HttpClientTransportOverHTTP2(http2Client)
+        {
+            @Override
+            public Connection newConnection(EndPoint endPoint, Map<String, Object> context) throws IOException
+            {
+                clientEndPointRef.set((AbstractEndPoint)endPoint);
+                clientEndPointLatch.countDown();
+                return super.newConnection(endPoint, context);
+            }
+        });
+        client.setMaxConnectionsPerDestination(1);
+        client.start();
+
+        // First request must cause TCP congestion.
+        CountDownLatch response1Latch = new CountDownLatch(1);
+        client.newRequest("localhost", connector.getLocalPort()).path("/1")
+            .body(new BytesRequestContent(new byte[64 * 1024 * 1024]))
+            .send(result ->
+            {
+                assertTrue(result.isSucceeded(), String.valueOf(result.getFailure()));
+                assertEquals(HttpStatus.OK_200, result.getResponse().getStatus());
+                response1Latch.countDown();
+            });
+
+        // Wait until TCP congested.
+        assertTrue(clientEndPointLatch.await(5, TimeUnit.SECONDS));
+        AbstractEndPoint clientEndPoint = clientEndPointRef.get();
+        long start = System.nanoTime();
+        while (!clientEndPoint.getWriteFlusher().isPending())
+        {
+            long elapsed = System.nanoTime() - start;
+            assertThat(TimeUnit.NANOSECONDS.toSeconds(elapsed), Matchers.lessThan(15L));
+            Thread.sleep(100);
+        }
+        // Wait for the selector to update the SelectionKey to OP_WRITE.
+        Thread.sleep(1000);
+
+        // Second request cannot be sent due to TCP congestion and times out.
+        assertThrows(TimeoutException.class, () -> client.newRequest("localhost", connector.getLocalPort())
+            .path("/2")
+            .timeout(1000, TimeUnit.MILLISECONDS)
+            .send());
+
+        // Third request should succeed.
+        CountDownLatch response3Latch = new CountDownLatch(1);
+        client.newRequest("localhost", connector.getLocalPort())
+            .path("/3")
+            .send(result ->
+            {
+                assertTrue(result.isSucceeded(), String.valueOf(result.getFailure()));
+                assertEquals(HttpStatus.OK_200, result.getResponse().getStatus());
+                response3Latch.countDown();
+            });
+
+        // Wait for the third request to generate the HTTP/2 stream.
+        Thread.sleep(1000);
+
+        // Resolve the TCP congestion.
+        request1Latch.countDown();
+
+        assertTrue(response1Latch.await(15, TimeUnit.SECONDS));
+        assertTrue(response3Latch.await(5, TimeUnit.SECONDS));
+    }
+
     private void primeConnection() throws Exception
     {
         // Prime the connection so that the maxConcurrentStream setting arrives to the client.
@@ -412,6 +551,18 @@ public class MaxConcurrentStreamsTest extends AbstractTest
         try
         {
             Thread.sleep(time);
+        }
+        catch (InterruptedException x)
+        {
+            throw new RuntimeException(x);
+        }
+    }
+
+    private boolean awaitLatch(CountDownLatch latch, long time, TimeUnit unit)
+    {
+        try
+        {
+            return latch.await(time, unit);
         }
         catch (InterruptedException x)
         {

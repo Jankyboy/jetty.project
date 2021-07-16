@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,12 +17,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.io.PrintWriter;
-import java.net.Inet4Address;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.net.URLEncoder;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -54,8 +47,8 @@ import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http.MimeTypes;
-import org.eclipse.jetty.io.AbstractEndPoint;
 import org.eclipse.jetty.io.ByteArrayEndPoint;
+import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.ErrorHandler;
@@ -95,25 +88,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
 public class ResponseTest
 {
-    static final InetSocketAddress LOCALADDRESS;
-
-    static
-    {
-        InetAddress ip = null;
-        try
-        {
-            ip = Inet4Address.getByName("127.0.0.42");
-        }
-        catch (UnknownHostException e)
-        {
-            e.printStackTrace();
-        }
-        finally
-        {
-            LOCALADDRESS = new InetSocketAddress(ip, 8888);
-        }
-    }
-
     private Server _server;
     private HttpChannel _channel;
     private ByteBuffer _content = BufferUtil.allocate(16 * 1024);
@@ -131,15 +105,16 @@ public class ResponseTest
         _server.setHandler(new DumpHandler());
         _server.start();
 
-        AbstractEndPoint endp = new ByteArrayEndPoint(scheduler, 5000)
+        SocketAddress local = InetSocketAddress.createUnresolved("myhost", 8888);
+        EndPoint endPoint = new ByteArrayEndPoint(scheduler, 5000)
         {
             @Override
-            public InetSocketAddress getLocalAddress()
+            public SocketAddress getLocalSocketAddress()
             {
-                return LOCALADDRESS;
+                return local;
             }
         };
-        _channel = new HttpChannel(connector, new HttpConfiguration(), endp, new HttpTransport()
+        _channel = new HttpChannel(connector, new HttpConfiguration(), endPoint, new HttpTransport()
         {
             private Throwable _channelError;
 
@@ -175,7 +150,38 @@ public class ResponseTest
             {
                 _channelError = failure;
             }
-        });
+        })
+        {
+            @Override
+            public boolean needContent()
+            {
+                return false;
+            }
+
+            @Override
+            public HttpInput.Content produceContent()
+            {
+                return null;
+            }
+
+            @Override
+            public boolean failAllContent(Throwable failure)
+            {
+                return false;
+            }
+
+            @Override
+            public boolean failed(Throwable x)
+            {
+                return false;
+            }
+
+            @Override
+            protected boolean eof()
+            {
+                return false;
+            }
+        };
     }
 
     @AfterEach
@@ -617,6 +623,7 @@ public class ResponseTest
         assertEquals("foo2/bar2;charset=utf-8", response.getContentType());
 
         response.recycle();
+        response.reopen();
 
         response.setCharacterEncoding("utf16");
         response.setContentType("text/html; charset=utf-8");
@@ -629,6 +636,7 @@ public class ResponseTest
         assertEquals("text/xml;charset=utf-8", response.getContentType());
 
         response.recycle();
+        response.reopen();
         response.setCharacterEncoding("utf-16");
         response.setContentType("foo/bar");
         assertEquals("foo/bar;charset=utf-16", response.getContentType());
@@ -1440,10 +1448,77 @@ public class ResponseTest
         output.flush();
     }
 
+    @Test
+    public void testEnsureConsumeAllOrNotPersistentHttp10() throws Exception
+    {
+        Response response = getResponse(HttpVersion.HTTP_1_0);
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), nullValue());
+
+        response = getResponse(HttpVersion.HTTP_1_0);
+        response.setHeader(HttpHeader.CONNECTION, "keep-alive");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), nullValue());
+
+        response = getResponse(HttpVersion.HTTP_1_0);
+        response.setHeader(HttpHeader.CONNECTION, "before");
+        response.getHttpFields().add(HttpHeader.CONNECTION, "foo, keep-alive, bar");
+        response.getHttpFields().add(HttpHeader.CONNECTION, "after");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("before, foo, bar, after"));
+
+        response = getResponse(HttpVersion.HTTP_1_0);
+        response.setHeader(HttpHeader.CONNECTION, "close");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("close"));
+    }
+
+    @Test
+    public void testEnsureConsumeAllOrNotPersistentHttp11() throws Exception
+    {
+        Response response = getResponse(HttpVersion.HTTP_1_1);
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("close"));
+
+        response = getResponse(HttpVersion.HTTP_1_1);
+        response.setHeader(HttpHeader.CONNECTION, "keep-alive");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("close"));
+
+        response = getResponse(HttpVersion.HTTP_1_1);
+        response.setHeader(HttpHeader.CONNECTION, "close");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("close"));
+
+        response = getResponse(HttpVersion.HTTP_1_1);
+        response.setHeader(HttpHeader.CONNECTION, "before, close, after");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("before, close, after"));
+
+        response = getResponse(HttpVersion.HTTP_1_1);
+        response.setHeader(HttpHeader.CONNECTION, "before");
+        response.getHttpFields().add(HttpHeader.CONNECTION, "middle, close");
+        response.getHttpFields().add(HttpHeader.CONNECTION, "after");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("before, middle, close, after"));
+
+        response = getResponse(HttpVersion.HTTP_1_1);
+        response.setHeader(HttpHeader.CONNECTION, "one");
+        response.getHttpFields().add(HttpHeader.CONNECTION, "two");
+        response.getHttpFields().add(HttpHeader.CONNECTION, "three");
+        response.getHttpChannel().ensureConsumeAllOrNotPersistent();
+        assertThat(response.getHttpFields().get(HttpHeader.CONNECTION), is("one, two, three, close"));
+    }
+
     private Response getResponse()
     {
+        return getResponse(HttpVersion.HTTP_1_0);
+    }
+
+    private Response getResponse(HttpVersion version)
+    {
         _channel.recycle();
-        _channel.getRequest().setMetaData(new MetaData.Request("GET", HttpURI.from("/path/info"), HttpVersion.HTTP_1_0, HttpFields.EMPTY));
+        _channel.getRequest().setMetaData(new MetaData.Request("GET", HttpURI.from("/path/info"), version, HttpFields.EMPTY));
         BufferUtil.clear(_content);
         return _channel.getResponse();
     }

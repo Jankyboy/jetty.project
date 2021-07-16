@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -34,6 +29,8 @@ import java.io.Writer;
 import java.nio.ByteBuffer;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -277,6 +274,21 @@ public class IO
     }
 
     /**
+     * Read Path to string.
+     *
+     * @param path the path to read from (until EOF)
+     * @param charset the charset to read with
+     * @return the String parsed from path (default Charset)
+     * @throws IOException if unable to read the path (or handle the charset)
+     */
+    public static String toString(Path path, Charset charset)
+        throws IOException
+    {
+        byte[] buf = Files.readAllBytes(path);
+        return new String(buf, charset);
+    }
+
+    /**
      * Read input stream to string.
      *
      * @param in the stream to read from (until EOF)
@@ -341,10 +353,13 @@ public class IO
      * This delete will recursively delete directories - BE CAREFUL
      *
      * @param file The file (or directory) to be deleted.
-     * @return true if anything was deleted. (note: this does not mean that all content in a directory was deleted)
+     * @return true if file was deleted, or directory referenced was deleted.
+     * false if file doesn't exist, or was null.
      */
     public static boolean delete(File file)
     {
+        if (file == null)
+            return false;
         if (!file.exists())
             return false;
         if (file.isDirectory())
@@ -356,6 +371,27 @@ public class IO
             }
         }
         return file.delete();
+    }
+
+    /**
+     * Test if directory is empty.
+     *
+     * @param dir the directory
+     * @return true if directory is null, doesn't exist, or has no content.
+     * false if not a directory, or has contents
+     */
+    public static boolean isEmptyDir(File dir)
+    {
+        if (dir == null)
+            return true;
+        if (!dir.exists())
+            return true;
+        if (!dir.isDirectory())
+            return false;
+        String[] list = dir.list();
+        if (list == null)
+            return true;
+        return list.length <= 0;
     }
 
     /**

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -35,12 +30,15 @@ import org.slf4j.LoggerFactory;
 public abstract class AbstractSessionDataStore extends ContainerLifeCycle implements SessionDataStore
 {
     private static final Logger LOG = LoggerFactory.getLogger(AbstractSessionDataStore.class);
+    
+    public static final int DEFAULT_GRACE_PERIOD_SEC = 60 * 60; //default of 1hr
+    public static final int DEFAULT_SAVE_PERIOD_SEC = 0;
 
     protected SessionContext _context; //context associated with this session data store
-    protected int _gracePeriodSec = 60 * 60; //default of 1hr 
+    protected int _gracePeriodSec = DEFAULT_GRACE_PERIOD_SEC;
     protected long _lastExpiryCheckTime = 0; //last time in ms that getExpired was called
     protected long _lastOrphanSweepTime = 0; //last time in ms that we deleted orphaned sessions
-    protected int _savePeriodSec = 0; //time in sec between saves
+    protected int _savePeriodSec = DEFAULT_SAVE_PERIOD_SEC; //time in sec between saves
     
     /**
      * Small utility class to allow us to

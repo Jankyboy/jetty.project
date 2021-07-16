@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,9 +15,11 @@ package org.eclipse.jetty.server.session;
 
 import java.io.File;
 import java.lang.annotation.ElementType;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Properties;
 
-import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
+import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.util.IO;
 import org.hibernate.search.cfg.Environment;
 import org.hibernate.search.cfg.SearchMapping;
@@ -93,24 +90,21 @@ public class InfinispanTestSupport
         return _cache;
     }
 
-    public void setup() throws Exception
+    public void setup(Path root) throws Exception
     {
-        File testdir = MavenTestingUtils.getTargetTestingDir();
-        File tmp = new File(testdir, "indexes");
-        IO.delete(tmp);
-        tmp.mkdirs();
+        Path indexesDir = root.resolve("indexes");
+        FS.ensureDirExists(indexesDir);
 
         SearchMapping mapping = new SearchMapping();
         mapping.entity(SessionData.class).indexed().providedId().property("expiry", ElementType.FIELD).field();
         Properties properties = new Properties();
         properties.put(Environment.MODEL_MAPPING, mapping);
-        properties.put("hibernate.search.default.indexBase", tmp.getAbsolutePath());
+        properties.put("hibernate.search.default.indexBase", indexesDir.toString());
 
         if (_useFileStore)
         {
-            _tmpdir = File.createTempFile("infini", "span");
-            _tmpdir.delete();
-            _tmpdir.mkdir();
+            Path tmpDir = Files.createTempDirectory("infinispan");
+            _tmpdir = tmpDir.toFile();
 
             ConfigurationChildBuilder b = _builder.indexing()
                 .index(Index.ALL)

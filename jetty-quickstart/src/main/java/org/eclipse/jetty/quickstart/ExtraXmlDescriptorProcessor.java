@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,6 +13,7 @@
 
 package org.eclipse.jetty.quickstart;
 
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.webapp.Descriptor;
 import org.eclipse.jetty.webapp.IterativeDescriptorProcessor;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -36,12 +32,11 @@ public class ExtraXmlDescriptorProcessor extends IterativeDescriptorProcessor
     private static final Logger LOG = LoggerFactory.getLogger(ExtraXmlDescriptorProcessor.class);
 
     private final StringBuilder _buffer = new StringBuilder();
-    private final boolean _showOrigin;
+    private String _originAttribute;
     private String _origin;
 
     public ExtraXmlDescriptorProcessor()
     {
-        _showOrigin = LOG.isDebugEnabled();
         try
         {
             registerVisitor("env-entry", getClass().getMethod("saveSnippet", __signature));
@@ -60,7 +55,7 @@ public class ExtraXmlDescriptorProcessor extends IterativeDescriptorProcessor
     public void start(WebAppContext context, Descriptor descriptor)
     {
         LOG.debug("process {}", descriptor);
-        _origin = ("  <!-- " + descriptor + " -->\n");
+        _origin = (StringUtil.isBlank(_originAttribute) ? null : "  <!-- " + descriptor + " -->\n");
     }
 
     @Override
@@ -68,11 +63,19 @@ public class ExtraXmlDescriptorProcessor extends IterativeDescriptorProcessor
     {
     }
 
+    public void setOriginAttribute(String name)
+    {
+        _originAttribute = name;
+    }
+    
     public void saveSnippet(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
         throws Exception
     {
+        //Note: we have to output the origin as a comment field instead of
+        //as an attribute like the other other elements because
+        //we are copying these elements _verbatim_ from the descriptor
         LOG.debug("save {}", node.getTag());
-        if (_showOrigin)
+        if (_origin != null)
             _buffer.append(_origin);
         _buffer.append("  ").append(node.toString()).append("\n");
     }

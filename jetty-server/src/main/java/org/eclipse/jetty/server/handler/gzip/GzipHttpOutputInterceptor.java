@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -27,6 +22,7 @@ import java.util.zip.Deflater;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
 import org.eclipse.jetty.http.PreEncodedHttpField;
 import org.eclipse.jetty.server.HttpChannel;
@@ -36,6 +32,7 @@ import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.IteratingNestedCallback;
 import org.eclipse.jetty.util.StringUtil;
+import org.eclipse.jetty.util.compression.DeflaterPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,7 +60,7 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
     private final int _bufferSize;
     private final boolean _syncFlush;
 
-    private Deflater _deflater;
+    private DeflaterPool.Entry _deflaterEntry;
     private ByteBuffer _buffer;
 
     public GzipHttpOutputInterceptor(GzipFactory factory, HttpChannel channel, HttpOutput.Interceptor next, boolean syncFlush)
@@ -122,7 +119,7 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
     private void addTrailer()
     {
         BufferUtil.putIntLittleEndian(_buffer, (int)_crc.getValue());
-        BufferUtil.putIntLittleEndian(_buffer, _deflater.getTotalIn());
+        BufferUtil.putIntLittleEndian(_buffer, _deflaterEntry.get().getTotalIn());
     }
 
     private void gzip(ByteBuffer content, boolean complete, final Callback callback)
@@ -143,9 +140,9 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
             LOG.debug("{} exclude by status {}", this, sc);
             noCompression();
 
-            if (sc == 304)
+            if (sc == HttpStatus.NOT_MODIFIED_304)
             {
-                String requestEtags = (String)_channel.getRequest().getAttribute("o.e.j.s.h.gzip.GzipHandler.etag");
+                String requestEtags = (String)_channel.getRequest().getAttribute(GzipHandler.GZIP_HANDLER_ETAGS);
                 String responseEtag = response.getHttpFields().get(HttpHeader.ETAG);
                 if (requestEtags != null && responseEtag != null)
                 {
@@ -195,8 +192,8 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
             if (contentLength < 0 && complete)
                 contentLength = content.remaining();
 
-            _deflater = _factory.getDeflater(_channel.getRequest(), contentLength);
-            if (_deflater == null)
+            _deflaterEntry = _factory.getDeflaterEntry(_channel.getRequest(), contentLength);
+            if (_deflaterEntry == null)
             {
                 LOG.debug("{} exclude no deflater", this);
                 _state.set(GZState.NOT_COMPRESSING);
@@ -204,7 +201,7 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
                 return;
             }
 
-            fields.put(GZIP._contentEncoding);
+            fields.put(GZIP.getContentEncoding());
             _crc.reset();
 
             // Adjust headers
@@ -213,7 +210,7 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
             if (etag != null)
                 fields.put(HttpHeader.ETAG, etagGzip(etag));
 
-            LOG.debug("{} compressing {}", this, _deflater);
+            LOG.debug("{} compressing {}", this, _deflaterEntry);
             _state.set(GZState.COMPRESSING);
 
             if (BufferUtil.isEmpty(content))
@@ -232,8 +229,7 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
 
     private String etagGzip(String etag)
     {
-        int end = etag.length() - 1;
-        return (etag.charAt(end) == '"') ? etag.substring(0, end) + GZIP._etag + '"' : etag + GZIP._etag;
+        return GZIP.etag(etag);
     }
 
     public void noCompression()
@@ -277,8 +273,11 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
         @Override
         protected void onCompleteFailure(Throwable x)
         {
-            _factory.recycle(_deflater);
-            _deflater = null;
+            if (_deflaterEntry != null)
+            {
+                _deflaterEntry.release();
+                _deflaterEntry = null;
+            }
             super.onCompleteFailure(x);
         }
 
@@ -286,7 +285,7 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
         protected Action process() throws Exception
         {
             // If we have no deflator
-            if (_deflater == null)
+            if (_deflaterEntry == null)
             {
                 // then the trailer has been generated and written below.
                 // we have finished compressing the entire content, so
@@ -318,16 +317,17 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
             }
 
             // If the deflator is not finished, then compress more data
-            if (!_deflater.finished())
+            Deflater deflater = _deflaterEntry.get();
+            if (!deflater.finished())
             {
-                if (_deflater.needsInput())
+                if (deflater.needsInput())
                 {
                     // if there is no more content available to compress
                     // then we are either finished all content or just the current write.
                     if (BufferUtil.isEmpty(_content))
                     {
                         if (_last)
-                            _deflater.finish();
+                            deflater.finish();
                         else
                             return Action.SUCCEEDED;
                     }
@@ -356,32 +356,32 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
                         _crc.update(array, off, len);
                         // Ideally we would want to use the ByteBuffer API for Deflaters. However due the the ByteBuffer implementation
                         // of the CRC32.update() it is less efficient for us to use this rather than to convert to array ourselves.
-                        _deflater.setInput(array, off, len);
+                        _deflaterEntry.get().setInput(array, off, len);
                         slice.position(slice.position() + len);
                         if (_last && BufferUtil.isEmpty(_content))
-                            _deflater.finish();
+                            deflater.finish();
                     }
                 }
 
                 // deflate the content into the available space in the buffer
                 int off = _buffer.arrayOffset() + _buffer.limit();
                 int len = BufferUtil.space(_buffer);
-                int produced = _deflater.deflate(_buffer.array(), off, len, _syncFlush ? Deflater.SYNC_FLUSH : Deflater.NO_FLUSH);
+                int produced = deflater.deflate(_buffer.array(), off, len, _syncFlush ? Deflater.SYNC_FLUSH : Deflater.NO_FLUSH);
                 _buffer.limit(_buffer.limit() + produced);
             }
 
             // If we have finished deflation and there is room for the trailer.
-            if (_deflater.finished() && BufferUtil.space(_buffer) >= 8)
+            if (deflater.finished() && BufferUtil.space(_buffer) >= 8)
             {
                 // add the trailer and recycle the deflator to flag that we will have had completeSuccess when
                 // the write below completes.
                 addTrailer();
-                _factory.recycle(_deflater);
-                _deflater = null;
+                _deflaterEntry.release();
+                _deflaterEntry = null;
             }
 
             // write the compressed buffer.
-            _interceptor.write(_buffer, _deflater == null, this);
+            _interceptor.write(_buffer, _deflaterEntry == null, this);
             return Action.SCHEDULED;
         }
 
@@ -394,8 +394,8 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
                 _last,
                 BufferUtil.toDetailString(_copy),
                 BufferUtil.toDetailString(_buffer),
-                _deflater,
-                _deflater != null && _deflater.finished() ? "(finished)" : "");
+                _deflaterEntry,
+                _deflaterEntry != null && _deflaterEntry.get().finished() ? "(finished)" : "");
         }
     }
 }

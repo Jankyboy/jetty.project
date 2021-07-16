@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -60,6 +55,7 @@ public class GCloudSessionDataStore extends AbstractSessionDataStore
     public static final int DEFAULT_MAX_QUERY_RESULTS = 100;
     public static final int DEFAULT_MAX_RETRIES = 5;
     public static final int DEFAULT_BACKOFF_MS = 1000;
+    public static final String DEFAULT_NAMESPACE = "";
 
     protected Datastore _datastore;
     protected KeyFactory _keyFactory;
@@ -70,7 +66,7 @@ public class GCloudSessionDataStore extends AbstractSessionDataStore
     protected boolean _indexesPresent = false;
     protected EntityDataModel _model;
     protected boolean _modelProvided;
-    private String _namespace;
+    private String _namespace = DEFAULT_NAMESPACE;
 
     /**
      * EntityDataModel
@@ -436,7 +432,7 @@ public class GCloudSessionDataStore extends AbstractSessionDataStore
         _namespace = namespace;
     }
 
-    @ManagedAttribute(value = "gclound namespace", readonly = true)
+    @ManagedAttribute(value = "gcloud namespace", readonly = true)
     public String getNamespace()
     {
         return _namespace;
@@ -876,7 +872,7 @@ public class GCloudSessionDataStore extends AbstractSessionDataStore
                 if (e.isRetryable())
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Datastore put retry {} waiting {}ms", attempts, backoff);
+                        LOG.debug(String.format("Datastore put retry=%s backoff=%s", attempts, backoff), e);
 
                     try
                     {

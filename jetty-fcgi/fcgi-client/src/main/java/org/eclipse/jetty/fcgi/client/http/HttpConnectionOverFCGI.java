@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,6 +16,7 @@ package org.eclipse.jetty.fcgi.client.http;
 import java.io.EOFException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
@@ -360,8 +356,8 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         return String.format("%s@%x[l:%s<->r:%s]",
             getClass().getSimpleName(),
             hashCode(),
-            getEndPoint().getLocalAddress(),
-            getEndPoint().getRemoteAddress());
+            getEndPoint().getLocalSocketAddress(),
+            getEndPoint().getRemoteSocketAddress());
     }
 
     private class Delegate extends HttpConnection
@@ -369,6 +365,12 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         private Delegate(HttpDestination destination)
         {
             super(destination);
+        }
+
+        @Override
+        protected Iterator<HttpChannel> getHttpChannels()
+        {
+            return new IteratorWrapper<>(activeChannels.values().iterator());
         }
 
         @Override
@@ -389,6 +391,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         public void close()
         {
             HttpConnectionOverFCGI.this.close();
+            destroy();
         }
 
         protected void close(Throwable failure)
@@ -507,6 +510,34 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         {
             if (LOG.isDebugEnabled())
                 LOG.debug("Channel not found for request {}", request);
+        }
+    }
+
+    private static final class IteratorWrapper<T> implements Iterator<T>
+    {
+        private final Iterator<? extends T> iterator;
+
+        private IteratorWrapper(Iterator<? extends T> iterator)
+        {
+            this.iterator = iterator;
+        }
+
+        @Override
+        public boolean hasNext()
+        {
+            return iterator.hasNext();
+        }
+
+        @Override
+        public T next()
+        {
+            return iterator.next();
+        }
+
+        @Override
+        public void remove()
+        {
+            iterator.remove();
         }
     }
 }

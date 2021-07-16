@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,6 +15,7 @@ package org.eclipse.jetty.http2.client.http;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.Map;
 
@@ -123,7 +119,7 @@ public class HttpClientTransportOverHTTP2 extends AbstractHttpClientTransport
     }
 
     @Override
-    public void connect(InetSocketAddress address, Map<String, Object> context)
+    public void connect(SocketAddress address, Map<String, Object> context)
     {
         HttpClient httpClient = getHttpClient();
         client.setConnectTimeout(httpClient.getConnectTimeout());
@@ -136,9 +132,20 @@ public class HttpClientTransportOverHTTP2 extends AbstractHttpClientTransport
         connect(address, destination.getClientConnectionFactory(), listenerPromise, listenerPromise, context);
     }
 
-    protected void connect(InetSocketAddress address, ClientConnectionFactory factory, Session.Listener listener, Promise<Session> promise, Map<String, Object> context)
+    @Override
+    public void connect(InetSocketAddress address, Map<String, Object> context)
+    {
+        connect((SocketAddress)address, context);
+    }
+
+    protected void connect(SocketAddress address, ClientConnectionFactory factory, Session.Listener listener, Promise<Session> promise, Map<String, Object> context)
     {
         getHTTP2Client().connect(address, factory, listener, promise, context);
+    }
+
+    protected void connect(InetSocketAddress address, ClientConnectionFactory factory, Session.Listener listener, Promise<Session> promise, Map<String, Object> context)
+    {
+        connect((SocketAddress)address, factory, listener, promise, context);
     }
 
     @Override
@@ -149,7 +156,7 @@ public class HttpClientTransportOverHTTP2 extends AbstractHttpClientTransport
         ClientConnectionFactory factory = connectionFactory;
         HttpDestination destination = (HttpDestination)context.get(HTTP_DESTINATION_CONTEXT_KEY);
         ProxyConfiguration.Proxy proxy = destination.getProxy();
-        boolean ssl = proxy == null ? HttpScheme.HTTPS.is(destination.getScheme()) : proxy.isSecure();
+        boolean ssl = proxy == null ? destination.isSecure() : proxy.isSecure();
         if (ssl && isUseALPN())
             factory = new ALPNClientConnectionFactory(client.getExecutor(), factory, client.getProtocols());
         return factory.newConnection(endPoint, context);

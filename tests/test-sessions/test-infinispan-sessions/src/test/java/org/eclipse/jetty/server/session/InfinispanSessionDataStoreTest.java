@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -24,12 +19,15 @@ import org.eclipse.jetty.session.infinispan.InfinispanSessionData;
 import org.eclipse.jetty.session.infinispan.InfinispanSessionDataStore;
 import org.eclipse.jetty.session.infinispan.InfinispanSessionDataStoreFactory;
 import org.eclipse.jetty.session.infinispan.QueryManager;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
 import org.infinispan.query.Search;
 import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.QueryFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -37,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * InfinispanSessionDataStoreTest
  */
+@ExtendWith(WorkDirExtension.class)
 public class InfinispanSessionDataStoreTest extends AbstractSessionDataStoreTest
 {
     static
@@ -46,11 +45,13 @@ public class InfinispanSessionDataStoreTest extends AbstractSessionDataStoreTest
 
     public InfinispanTestSupport _testSupport;
 
+    public WorkDir workDir;
+
     @BeforeEach
     public void setup() throws Exception
     {
         _testSupport = new InfinispanTestSupport();
-        _testSupport.setup();
+        _testSupport.setup(workDir.getEmptyPathDir());
     }
 
     @AfterEach

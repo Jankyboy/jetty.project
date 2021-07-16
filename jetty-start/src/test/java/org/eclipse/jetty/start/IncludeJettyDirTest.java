@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -99,7 +94,7 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
+        TestEnv.makeFile(base, "start.ini",
             "jetty.http.host=127.0.0.1");
 
         // Simple command line - no reference to include-jetty-dirs
@@ -129,7 +124,7 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
+        TestEnv.makeFile(base, "start.ini",
             "jetty.http.host=127.0.0.1");
 
         // Simple command line reference to include-jetty-dir
@@ -163,7 +158,7 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
+        TestEnv.makeFile(base, "start.ini",
             "jetty.http.host=127.0.0.1");
 
         // Simple command line reference to include-jetty-dir via property (also on command line)
@@ -203,7 +198,7 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
+        TestEnv.makeFile(base, "start.ini",
             "jetty.http.host=127.0.0.1");
 
         String dirRef = "${my.opt}" + File.separator + "common";
@@ -245,7 +240,7 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
+        TestEnv.makeFile(base, "start.ini",
             "jetty.http.host=127.0.0.1");
 
         String dirRef = "${my.opt}" + File.separator + "${my.dir}";
@@ -285,8 +280,8 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
             "--include-jetty-dir=" + common.toString());
 
         MainResult result = runMain(base, home);
@@ -321,9 +316,9 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
-            "--include-jetty-dir=" + common.toString(), //
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
+            "--include-jetty-dir=" + common.toString(),
             "--include-jetty-dir=" + corp.toString());
 
         MainResult result = runMain(base, home);
@@ -355,15 +350,15 @@ public class IncludeJettyDirTest
         // Create common
         Path common = testdir.getPathFile("common");
         FS.ensureEmpty(common);
-        TestEnv.makeFile(common, "start.ini", //
-            "--include-jetty-dir=" + corp.toString(), //
+        TestEnv.makeFile(common, "start.ini",
+            "--include-jetty-dir=" + corp.toString(),
             "jetty.http.port=8080");
 
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
             "--include-jetty-dir=" + common.toString());
 
         MainResult result = runMain(base, home);
@@ -390,23 +385,23 @@ public class IncludeJettyDirTest
         // Create corp
         Path corp = testdir.getPathFile("corp");
         FS.ensureEmpty(corp);
-        TestEnv.makeFile(corp, "start.ini", //
+        TestEnv.makeFile(corp, "start.ini",
             "jetty.http.port=9090");
 
         // Create common
         Path common = testdir.getPathFile("common");
         FS.ensureEmpty(common);
-        TestEnv.makeFile(common, "start.ini", //
-            "my.corp=" + corp.toString(), //
-            "--include-jetty-dir=${my.corp}", //
+        TestEnv.makeFile(common, "start.ini",
+            "my.corp=" + corp.toString(),
+            "--include-jetty-dir=${my.corp}",
             "jetty.http.port=8080");
 
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
-            "my.common=" + common.toString(), //
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
+            "my.common=" + common.toString(),
             "--include-jetty-dir=${my.common}");
 
         MainResult result = runMain(base, home);
@@ -433,28 +428,28 @@ public class IncludeJettyDirTest
         // Create devops
         Path devops = testdir.getPathFile("devops");
         FS.ensureEmpty(devops);
-        TestEnv.makeFile(devops, "start.ini", //
-            "--module=optional", //
+        TestEnv.makeFile(devops, "start.ini",
+            "--module=optional",
             "jetty.http.port=2222");
 
         // Create corp
         Path corp = testdir.getPathFile("corp");
         FS.ensureEmpty(corp);
-        TestEnv.makeFile(corp, "start.ini", //
+        TestEnv.makeFile(corp, "start.ini",
             "jetty.http.port=9090");
 
         // Create common
         Path common = testdir.getPathFile("common");
         FS.ensureEmpty(common);
-        TestEnv.makeFile(common, "start.ini", //
-            "--include-jetty-dir=" + corp.toString(), //
+        TestEnv.makeFile(common, "start.ini",
+            "--include-jetty-dir=" + corp.toString(),
             "jetty.http.port=8080");
 
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
             "--include-jetty-dir=" + common.toString());
 
         MainResult result = runMain(base, home,
@@ -484,21 +479,21 @@ public class IncludeJettyDirTest
         // Create corp
         Path corp = testdir.getPathFile("corp");
         FS.ensureEmpty(corp);
-        TestEnv.makeFile(corp, "start.ini", //
+        TestEnv.makeFile(corp, "start.ini",
             "jetty.http.port=9090");
 
         // Create common
         Path common = testdir.getPathFile("common");
         FS.ensureEmpty(common);
-        TestEnv.makeFile(common, "start.ini", //
-            "--include-jetty-dir=" + corp.toString(), //
+        TestEnv.makeFile(common, "start.ini",
+            "--include-jetty-dir=" + corp.toString(),
             "jetty.http.port=8080");
 
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
             "--include-jetty-dir=" + common.toString());
 
         MainResult result = runMain(base, home,
@@ -547,8 +542,8 @@ public class IncludeJettyDirTest
         // Create base
         Path base = testdir.getPathFile("base");
         FS.ensureEmpty(base);
-        TestEnv.makeFile(base, "start.ini", //
-            "jetty.http.host=127.0.0.1",//
+        TestEnv.makeFile(base, "start.ini",
+            "jetty.http.host=127.0.0.1",
             "--include-jetty-dir=" + common.toString());
 
         UsageException e = assertThrows(UsageException.class, () -> runMain(base, home));

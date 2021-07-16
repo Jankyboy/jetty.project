@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -24,6 +19,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -91,7 +87,12 @@ public class HttpClientTransportDynamic extends AbstractConnectorHttpClientTrans
      */
     public HttpClientTransportDynamic()
     {
-        this(new ClientConnector(), HttpClientConnectionFactory.HTTP11);
+        this(HttpClientConnectionFactory.HTTP11);
+    }
+
+    public HttpClientTransportDynamic(ClientConnectionFactory.Info... factoryInfos)
+    {
+        this(findClientConnector(factoryInfos), factoryInfos);
     }
 
     /**
@@ -103,7 +104,6 @@ public class HttpClientTransportDynamic extends AbstractConnectorHttpClientTrans
     public HttpClientTransportDynamic(ClientConnector connector, ClientConnectionFactory.Info... factoryInfos)
     {
         super(connector);
-        addBean(connector);
         if (factoryInfos.length == 0)
             factoryInfos = new Info[]{HttpClientConnectionFactory.HTTP11};
         this.factoryInfos = Arrays.asList(factoryInfos);
@@ -115,6 +115,15 @@ public class HttpClientTransportDynamic extends AbstractConnectorHttpClientTrans
         Arrays.stream(factoryInfos).forEach(this::addBean);
         setConnectionPoolFactory(destination ->
                 new MultiplexConnectionPool(destination, destination.getHttpClient().getMaxConnectionsPerDestination(), destination, 1));
+    }
+
+    private static ClientConnector findClientConnector(ClientConnectionFactory.Info[] infos)
+    {
+        return Arrays.stream(infos)
+            .map(info -> info.getBean(ClientConnector.class))
+            .filter(Objects::nonNull)
+            .findFirst()
+            .orElse(new ClientConnector());
     }
 
     @Override

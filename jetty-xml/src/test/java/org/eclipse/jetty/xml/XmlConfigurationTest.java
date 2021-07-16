@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -33,12 +28,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.eclipse.jetty.logging.JettyLevel;
 import org.eclipse.jetty.logging.JettyLogger;
 import org.eclipse.jetty.logging.StdErrAppender;
+import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
 import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
@@ -47,11 +45,12 @@ import org.eclipse.jetty.util.resource.PathResource;
 import org.eclipse.jetty.util.resource.Resource;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -172,6 +171,11 @@ public class XmlConfigurationTest
         Map<String, String> map = (Map<String, String>)configuration.getIdMap().get("map");
         assertEquals(map.get("key0"), "value0");
         assertEquals(map.get("key1"), "value1");
+
+        @SuppressWarnings("unchecked")
+        Map<String, String> concurrentMap = (Map<String, String>)configuration.getIdMap().get("concurrentMap");
+        assertThat(concurrentMap, instanceOf(ConcurrentMap.class));
+        assertEquals(concurrentMap.get("KEY"), "ITEM");
     }
 
     @ParameterizedTest
@@ -324,6 +328,30 @@ public class XmlConfigurationTest
     }
 
     @Test
+    public void testSetFieldWithProperty() throws Exception
+    {
+        XmlConfiguration configuration = asXmlConfiguration("<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\"><Set name=\"testField1\" property=\"prop\" id=\"test\"/></Configure>");
+        configuration.getProperties().put("prop", "42");
+        TestConfiguration tc = new TestConfiguration();
+        tc.testField1 = -1;
+        configuration.configure(tc);
+        assertEquals(42, tc.testField1);
+        assertEquals(configuration.getIdMap().get("test"), "42");
+    }
+
+    @Test
+    public void testNotSetFieldWithNullProperty() throws Exception
+    {
+        XmlConfiguration configuration = asXmlConfiguration("<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\"><Set name=\"testField1\" property=\"prop\" id=\"test\"/></Configure>");
+        configuration.getProperties().remove("prop");
+        TestConfiguration tc = new TestConfiguration();
+        tc.testField1 = -1;
+        configuration.configure(tc);
+        assertEquals(-1, tc.testField1);
+        assertEquals(configuration.getIdMap().get("test"), null);
+    }
+
+    @Test
     public void testSetWithNullProperty() throws Exception
     {
         XmlConfiguration configuration = asXmlConfiguration("<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\"><Set name=\"TestString\" property=\"prop\" id=\"test\"/></Configure>");
@@ -357,6 +385,33 @@ public class XmlConfigurationTest
         configuration.configure(tc);
         assertEquals("default", tc.getTestString());
         assertNull(configuration.getIdMap().get("test"));
+    }
+
+    @Test
+    public void testSetWithWrongNameAndProperty() throws Exception
+    {
+        XmlConfiguration configuration = asXmlConfiguration("<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\"><Set name=\"WrongName\" property=\"prop\" id=\"test\"/></Configure>");
+        configuration.getProperties().put("prop", "This is a property value");
+        TestConfiguration tc = new TestConfiguration();
+        tc.setTestString("default");
+
+        NoSuchMethodException e = assertThrows(NoSuchMethodException.class, () -> configuration.configure(tc));
+        assertThat(e.getMessage(), containsString("setWrongName"));
+        assertEquals("default", tc.getTestString());
+    }
+    
+    @Test
+    public void testSetWithWrongNameAndNullProperty() throws Exception
+    {
+        XmlConfiguration configuration = asXmlConfiguration("<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\"><Set name=\"WrongName\" property=\"prop\" id=\"test\"/></Configure>");
+        configuration.getProperties().remove("prop");
+        TestConfiguration tc = new TestConfiguration();
+        tc.setTestString("default");
+
+        NoSuchMethodException e = assertThrows(NoSuchMethodException.class, () -> configuration.configure(tc));
+        assertThat(e.getMessage(), containsString("setWrongName"));
+        assertThat(e.getSuppressed()[0], instanceOf(NoSuchFieldException.class));
+        assertEquals("default", tc.getTestString());
     }
 
     @Test
@@ -1086,7 +1141,6 @@ public class XmlConfigurationTest
     }
 
     @Test
-    @Disabled
     public void testSetBadBoolean() throws Exception
     {
         XmlConfiguration xmlConfiguration = asXmlConfiguration(
@@ -1094,8 +1148,10 @@ public class XmlConfigurationTest
                 "  <Set name=\"boolean\">tru</Set>" +
                 "</Configure>");
 
+        //Any string other than "true" (case insensitive) will be false
+        //according to Boolean constructor.
         NativeHolder bh = (NativeHolder)xmlConfiguration.configure();
-        assertTrue(bh.getBoolean(), "boolean['tru']");
+        assertFalse(bh.getBoolean(), "boolean['tru']");
     }
 
     @Test
@@ -1584,6 +1640,129 @@ public class XmlConfigurationTest
         // 5. Deprecated <Set> field
         // 6. Deprecated <Get> field
         assertEquals(6, warnings.size());
+    }
+
+    public static Stream<Arguments> resolvePathCases()
+    {
+        String resolvePathCasesJettyBase;
+
+        ArrayList<Arguments> cases = new ArrayList<>();
+        if (OS.WINDOWS.isCurrentOs())
+        {
+            resolvePathCasesJettyBase = "C:\\web\\jetty-base";
+
+            // Not configured, default (in xml) is used.
+            cases.add(Arguments.of(resolvePathCasesJettyBase, null, "C:\\web\\jetty-base\\etc\\keystore.p12"));
+            // Configured using normal relative path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "alt/keystore", "C:\\web\\jetty-base\\alt\\keystore"));
+            // Configured using navigated path segments
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "../corp/etc/keystore", "C:\\web\\corp\\etc\\keystore"));
+            // Configured using relative to drive-root path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "/included/keystore", "C:\\included\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "\\included\\keystore", "C:\\included\\keystore"));
+            // Configured using absolute path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "D:\\main\\config\\keystore", "D:\\main\\config\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "E:other\\keystore", "E:other\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "F:\\\\other\\keystore", "F:\\other\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "G:///another/keystore", "G:\\another\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "H:///prod/app/keystore", "H:\\prod\\app\\keystore"));
+
+            resolvePathCasesJettyBase = "\\\\machine\\share\\apps\\jetty-base";
+
+            // Not configured, default (in xml) is used.
+            cases.add(Arguments.of(resolvePathCasesJettyBase, null, "\\\\machine\\share\\apps\\jetty-base\\etc\\keystore.p12"));
+            // Configured using normal relative path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "alt/keystore", "\\\\machine\\share\\apps\\jetty-base\\alt\\keystore"));
+            // Configured using navigated path segments
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "../corp/etc/keystore", "\\\\machine\\share\\apps\\corp\\etc\\keystore"));
+            // Configured using relative to drive-root path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "/included/keystore", "\\\\machine\\share\\included\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "\\included\\keystore", "\\\\machine\\share\\included\\keystore"));
+            // Configured using absolute path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "D:\\main\\config\\keystore", "D:\\main\\config\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "E:other\\keystore", "E:other\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "F:\\\\other\\keystore", "F:\\other\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "G:///another/keystore", "G:\\another\\keystore"));
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "H:///prod/app/keystore", "H:\\prod\\app\\keystore"));
+        }
+        else
+        {
+            resolvePathCasesJettyBase = "/var/lib/jetty-base";
+
+            // Not configured, default (in xml) is used.
+            cases.add(Arguments.of(resolvePathCasesJettyBase, null, "/var/lib/jetty-base/etc/keystore.p12"));
+            // Configured using normal relative path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "alt/keystore", "/var/lib/jetty-base/alt/keystore"));
+            // Configured using navigated path segments
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "../corp/etc/keystore", "/var/lib/corp/etc/keystore"));
+            // Configured using absolute path
+            cases.add(Arguments.of(resolvePathCasesJettyBase, "/opt/jetty/etc/keystore", "/opt/jetty/etc/keystore"));
+        }
+
+        return cases.stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("resolvePathCases")
+    public void testCallResolvePath(String jettyBasePath, String configValue, String expectedPath) throws Exception
+    {
+        Path war = MavenTestingUtils.getTargetPath("no.war");
+        XmlConfiguration configuration =
+            asXmlConfiguration(
+                "<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\">" +
+                    "  <Set name=\"TestString\">" +
+                    "    <Call name=\"resolvePath\" class=\"org.eclipse.jetty.xml.XmlConfiguration\">" +
+                    "     <Arg><Property name=\"jetty.base\"/></Arg>" +
+                    "     <Arg><Property name=\"jetty.sslContext.keyStorePath\" default=\"etc/keystore.p12\" /></Arg>" +
+                    "    </Call>" +
+                    "  </Set>" +
+                    "</Configure>");
+
+        try
+        {
+            configuration.setJettyStandardIdsAndProperties(null, Resource.newResource(war));
+            configuration.getProperties().put("jetty.base", jettyBasePath);
+            if (configValue != null)
+                configuration.getProperties().put("jetty.sslContext.keyStorePath", configValue);
+
+            TestConfiguration tc = new TestConfiguration();
+            configuration.configure(tc);
+
+            assertThat(tc.getTestString(), is(expectedPath));
+        }
+        finally
+        {
+            // cleanup after myself
+            configuration.getProperties().remove("jetty.base");
+        }
+    }
+
+    @Test
+    public void testResolvePathRelative()
+    {
+        Path testPath = MavenTestingUtils.getTargetTestingPath("testResolvePathRelative");
+        FS.ensureDirExists(testPath);
+        String resolved = XmlConfiguration.resolvePath(testPath.toString(), "etc/keystore");
+        assertEquals(testPath.resolve("etc/keystore").toString(), resolved);
+    }
+
+    @Test
+    public void testResolvePathAbsolute()
+    {
+        Path testPath = MavenTestingUtils.getTargetTestingPath("testResolvePathRelative");
+        FS.ensureDirExists(testPath);
+        String resolved = XmlConfiguration.resolvePath(testPath.toString(), "/tmp/etc/keystore");
+        assertEquals(testPath.resolve("/tmp/etc/keystore").toString(), resolved);
+    }
+
+    @Test
+    public void testResolvePathInvalidBase()
+    {
+        Path testPath = MavenTestingUtils.getTargetTestingPath("testResolvePathRelative");
+        FS.ensureDeleted(testPath);
+        Path baseDir = testPath.resolve("bogus");
+        String resolved = XmlConfiguration.resolvePath(baseDir.toString(), "etc/keystore");
+        assertEquals(baseDir.resolve("etc/keystore").toString(), resolved);
     }
 
     private ByteArrayOutputStream captureLoggingBytes(ThrowableAction action) throws Exception

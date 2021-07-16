@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -29,6 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.component.DumpableCollection;
@@ -53,7 +49,6 @@ public class Pool<T> implements AutoCloseable, Dumpable
     private final List<Entry> entries = new CopyOnWriteArrayList<>();
 
     private final int maxEntries;
-    private final AtomicInteger pending = new AtomicInteger();
     private final StrategyType strategyType;
 
     /*
@@ -136,7 +131,7 @@ public class Pool<T> implements AutoCloseable, Dumpable
 
     public int getReservedCount()
     {
-        return pending.get();
+        return (int)entries.stream().filter(Entry::isReserved).count();
     }
 
     public int getIdleCount()
@@ -147,6 +142,11 @@ public class Pool<T> implements AutoCloseable, Dumpable
     public int getInUseCount()
     {
         return (int)entries.stream().filter(Entry::isInUse).count();
+    }
+
+    public int getClosedCount()
+    {
+        return (int)entries.stream().filter(Entry::isClosed).count();
     }
 
     public int getMaxEntries()
@@ -166,16 +166,42 @@ public class Pool<T> implements AutoCloseable, Dumpable
         this.maxMultiplex = maxMultiplex;
     }
 
+    /**
+     * Get the maximum number of times the entries of the pool
+     * can be acquired.
+     * @return the max usage count.
+     */
     public int getMaxUsageCount()
     {
         return maxUsageCount;
     }
 
+    /**
+     * Change the max usage count of the pool's entries. All existing
+     * idle entries over this new max usage are removed and closed.
+     * @param maxUsageCount the max usage count.
+     */
     public final void setMaxUsageCount(int maxUsageCount)
     {
         if (maxUsageCount == 0)
             throw new IllegalArgumentException("Max usage count must be != 0");
         this.maxUsageCount = maxUsageCount;
+
+        // Iterate the entries, remove overused ones and collect a list of the closeable removed ones.
+        List<Closeable> copy;
+        try (AutoLock l = lock.lock())
+        {
+            if (closed)
+                return;
+
+            copy = entries.stream()
+                .filter(entry -> entry.isIdleAndOverUsed() && remove(entry) && entry.pooled instanceof Closeable)
+                .map(entry -> (Closeable)entry.pooled)
+                .collect(Collectors.toList());
+        }
+
+        // Iterate the copy and close the collected entries.
+        copy.forEach(IO::close);
     }
 
     /**
@@ -189,7 +215,9 @@ public class Pool<T> implements AutoCloseable, Dumpable
      * @return a disabled entry that is contained in the pool,
      * or null if the pool is closed or if the pool already contains
      * {@link #getMaxEntries()} entries, or the allotment has already been reserved
+     * @deprecated Use {@link #reserve()} instead
      */
+    @Deprecated
     public Entry reserve(int allotment)
     {
         try (AutoLock l = lock.lock())
@@ -201,12 +229,35 @@ public class Pool<T> implements AutoCloseable, Dumpable
             if (space <= 0)
                 return null;
 
-            // The pending count is an AtomicInteger that is only ever incremented here with
-            // the lock held.  Thus the pending count can be reduced immediately after the
-            // test below, but never incremented.  Thus the allotment limit can be enforced.
-            if (allotment >= 0 && (pending.get() * getMaxMultiplex()) >= allotment)
+            if (allotment >= 0 && (getReservedCount() * getMaxMultiplex()) >= allotment)
                 return null;
-            pending.incrementAndGet();
+
+            Entry entry = new Entry();
+            entries.add(entry);
+            return entry;
+        }
+    }
+
+    /**
+     * Create a new disabled slot into the pool.
+     * The returned entry must ultimately have the {@link Entry#enable(Object, boolean)}
+     * method called or be removed via {@link Pool.Entry#remove()} or
+     * {@link Pool#remove(Pool.Entry)}.
+     *
+     * @return a disabled entry that is contained in the pool,
+     * or null if the pool is closed or if the pool already contains
+     * {@link #getMaxEntries()} entries
+     */
+    public Entry reserve()
+    {
+        try (AutoLock l = lock.lock())
+        {
+            if (closed)
+                return null;
+
+            // If we have no space
+            if (entries.size() >= maxEntries)
+                return null;
 
             Entry entry = new Entry();
             entries.add(entry);
@@ -249,6 +300,11 @@ public class Pool<T> implements AutoCloseable, Dumpable
             {
                 LOGGER.trace("IGNORED", e);
                 size = entries.size();
+                // Size can be 0 when the pool is in the middle of
+                // acquiring a connection while another thread
+                // removes the last one from the pool.
+                if (size == 0)
+                    break;
             }
             index = (index + 1) % size;
         }
@@ -285,7 +341,7 @@ public class Pool<T> implements AutoCloseable, Dumpable
         if (entry != null)
             return entry;
 
-        entry = reserve(-1);
+        entry = reserve();
         if (entry == null)
             return null;
 
@@ -375,8 +431,17 @@ public class Pool<T> implements AutoCloseable, Dumpable
         // iterate the copy and close its entries
         for (Entry entry : copy)
         {
-            if (entry.tryRemove() && entry.pooled instanceof Closeable)
-                IO.close((Closeable)entry.pooled);
+            boolean removed = entry.tryRemove();
+            if (removed)
+            {
+                if (entry.pooled instanceof Closeable)
+                    IO.close((Closeable)entry.pooled);
+            }
+            else
+            {
+                if (LOGGER.isDebugEnabled())
+                    LOGGER.debug("Pooled object still in use: {}", entry);
+            }
         }
     }
 
@@ -400,12 +465,11 @@ public class Pool<T> implements AutoCloseable, Dumpable
     @Override
     public String toString()
     {
-        return String.format("%s@%x[size=%d closed=%s pending=%d]",
+        return String.format("%s@%x[size=%d closed=%s]",
             getClass().getSimpleName(),
             hashCode(),
             entries.size(),
-            closed,
-            pending.get());
+            closed);
     }
 
     public class Entry
@@ -424,8 +488,14 @@ public class Pool<T> implements AutoCloseable, Dumpable
             this.state = new AtomicBiInteger(Integer.MIN_VALUE, 0);
         }
 
+        // for testing only
+        void setUsageCount(int usageCount)
+        {
+            this.state.getAndSetHi(usageCount);
+        }
+
         /** Enable a reserved entry {@link Entry}.
-         * An entry returned from the {@link #reserve(int)} method must be enabled with this method,
+         * An entry returned from the {@link #reserve()} method must be enabled with this method,
          * once and only once, before it is usable by the pool.
          * The entry may be enabled and not acquired, in which case it is immediately available to be
          * acquired, potentially by another thread; or it can be enabled and acquired atomically so that
@@ -454,7 +524,7 @@ public class Pool<T> implements AutoCloseable, Dumpable
                     return false; // Pool has been closed
                 throw new IllegalStateException("Entry already enabled: " + this);
             }
-            pending.decrementAndGet();
+
             return true;
         }
 
@@ -502,7 +572,9 @@ public class Pool<T> implements AutoCloseable, Dumpable
                 if (closed || multiplexingCount >= maxMultiplex || (currentMaxUsageCount > 0 && usageCount >= currentMaxUsageCount))
                     return false;
 
-                if (state.compareAndSet(encoded, usageCount + 1, multiplexingCount + 1))
+                // Prevent overflowing the usage counter by capping it at Integer.MAX_VALUE.
+                int newUsageCount = usageCount == Integer.MAX_VALUE ? Integer.MAX_VALUE : usageCount + 1;
+                if (state.compareAndSet(encoded, newUsageCount, multiplexingCount + 1))
                     return true;
             }
         }
@@ -538,16 +610,10 @@ public class Pool<T> implements AutoCloseable, Dumpable
             return !(overUsed && newMultiplexingCount == 0);
         }
 
-        public boolean isOverUsed()
-        {
-            int currentMaxUsageCount = maxUsageCount;
-            int usageCount = state.getHi();
-            return currentMaxUsageCount > 0 && usageCount >= currentMaxUsageCount;
-        }
-
         /**
-         * Try to mark the entry as removed.
-         * @return true if the entry has to be removed from the containing pool, false otherwise.
+         * Try to remove the entry by marking it as closed and decrementing the multiplexing counter.
+         * The multiplexing counter will never go below zero and if it reaches zero, the entry is considered removed.
+         * @return true if the entry can be removed from the containing pool, false otherwise.
          */
         boolean tryRemove()
         {
@@ -560,17 +626,18 @@ public class Pool<T> implements AutoCloseable, Dumpable
 
                 boolean removed = state.compareAndSet(usageCount, -1, multiplexCount, newMultiplexCount);
                 if (removed)
-                {
-                    if (usageCount == Integer.MIN_VALUE)
-                        pending.decrementAndGet();
                     return newMultiplexCount == 0;
-                }
             }
         }
 
         public boolean isClosed()
         {
             return state.getHi() < 0;
+        }
+
+        public boolean isReserved()
+        {
+            return state.getHi() == Integer.MIN_VALUE;
         }
 
         public boolean isIdle()
@@ -583,6 +650,22 @@ public class Pool<T> implements AutoCloseable, Dumpable
         {
             long encoded = state.get();
             return AtomicBiInteger.getHi(encoded) >= 0 && AtomicBiInteger.getLo(encoded) > 0;
+        }
+
+        public boolean isOverUsed()
+        {
+            int currentMaxUsageCount = maxUsageCount;
+            int usageCount = state.getHi();
+            return currentMaxUsageCount > 0 && usageCount >= currentMaxUsageCount;
+        }
+
+        boolean isIdleAndOverUsed()
+        {
+            int currentMaxUsageCount = maxUsageCount;
+            long encoded = state.get();
+            int usageCount = AtomicBiInteger.getHi(encoded);
+            int multiplexCount = AtomicBiInteger.getLo(encoded);
+            return currentMaxUsageCount > 0 && usageCount >= currentMaxUsageCount && multiplexCount == 0;
         }
 
         public int getUsageCount()

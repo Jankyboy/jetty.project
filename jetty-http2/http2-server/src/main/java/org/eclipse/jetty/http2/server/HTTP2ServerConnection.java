@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -27,7 +22,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpField;
@@ -89,8 +83,6 @@ public class HTTP2ServerConnection extends HTTP2Connection
     private final AutoLock lock = new AutoLock();
     private final Queue<HttpChannelOverHTTP2> channels = new ArrayDeque<>();
     private final List<Frame> upgradeFrames = new ArrayList<>();
-    private final AtomicLong totalRequests = new AtomicLong();
-    private final AtomicLong totalResponses = new AtomicLong();
     private final ServerSessionListener listener;
     private final HttpConfiguration httpConfig;
     private boolean recycleHttpChannels = true;
@@ -100,18 +92,6 @@ public class HTTP2ServerConnection extends HTTP2Connection
         super(byteBufferPool, executor, endPoint, parser, session, inputBufferSize);
         this.listener = listener;
         this.httpConfig = httpConfig;
-    }
-
-    @Override
-    public long getMessagesIn()
-    {
-        return totalRequests.get();
-    }
-
-    @Override
-    public long getMessagesOut()
-    {
-        return totalResponses.get();
     }
 
     @Override
@@ -360,13 +340,6 @@ public class HTTP2ServerConnection extends HTTP2Connection
         }
 
         @Override
-        public Runnable onRequest(HeadersFrame frame)
-        {
-            totalRequests.incrementAndGet();
-            return super.onRequest(frame);
-        }
-
-        @Override
         protected boolean checkAndPrepareUpgrade()
         {
             return isTunnel() && getHttpTransport().prepareUpgrade();
@@ -376,7 +349,6 @@ public class HTTP2ServerConnection extends HTTP2Connection
         public void onCompleted()
         {
             super.onCompleted();
-            totalResponses.incrementAndGet();
             if (!getStream().isReset() && !isTunnel())
                 recycle();
         }

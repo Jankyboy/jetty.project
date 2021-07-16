@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -42,9 +37,9 @@ public class GZIPContentDecoder implements Destroyable
     private static final long UINT_MAX = 0xFFFFFFFFL;
 
     private final List<ByteBuffer> _inflateds = new ArrayList<>();
-    private final InflaterPool _inflaterPool;
     private final ByteBufferPool _pool;
     private final int _bufferSize;
+    private InflaterPool.Entry _inflaterEntry;
     private Inflater _inflater;
     private State _state;
     private int _size;
@@ -64,13 +59,13 @@ public class GZIPContentDecoder implements Destroyable
 
     public GZIPContentDecoder(ByteBufferPool pool, int bufferSize)
     {
-        this(null, pool, bufferSize);
+        this(new InflaterPool(0, true), pool, bufferSize);
     }
 
     public GZIPContentDecoder(InflaterPool inflaterPool, ByteBufferPool pool, int bufferSize)
     {
-        _inflaterPool = inflaterPool;
-        _inflater = (inflaterPool == null) ? new Inflater(true) : inflaterPool.acquire();
+        _inflaterEntry = inflaterPool.acquire();
+        _inflater = _inflaterEntry.get();
         _bufferSize = bufferSize;
         _pool = pool;
         reset();
@@ -416,11 +411,8 @@ public class GZIPContentDecoder implements Destroyable
     @Override
     public void destroy()
     {
-        if (_inflaterPool == null)
-            _inflater.end();
-        else
-            _inflaterPool.release(_inflater);
-
+        _inflaterEntry.release();
+        _inflaterEntry = null;
         _inflater = null;
     }
 

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -511,12 +506,125 @@ public class HttpClientRedirectTest extends AbstractHttpClientServerTest
             }
         });
 
+        long timeout = 1000;
+        TimeoutException timeoutException = assertThrows(TimeoutException.class, () ->
+        {
+            client.setMaxRedirects(-1);
+            client.newRequest("localhost", connector.getLocalPort())
+                .scheme(scenario.getScheme())
+                .timeout(timeout, TimeUnit.MILLISECONDS)
+                .send();
+        });
+        assertThat(timeoutException.getMessage(), Matchers.containsString(String.valueOf(timeout)));
+    }
+
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testRedirectToDifferentHostThenRequestToFirstHostExpires(Scenario scenario) throws Exception
+    {
+        long timeout = 1000;
+        start(scenario, new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response) throws ServletException
+            {
+                if ("/one".equals(target))
+                {
+                    response.setStatus(HttpStatus.SEE_OTHER_303);
+                    response.setHeader(HttpHeader.LOCATION.asString(), scenario.getScheme() + "://127.0.0.1:" + connector.getLocalPort() + "/two");
+                }
+                else if ("/two".equals(target))
+                {
+                    try
+                    {
+                        // Send another request to "localhost", therefore reusing the
+                        // connection used for the first request, it must timeout.
+                        CountDownLatch latch = new CountDownLatch(1);
+                        client.newRequest("localhost", connector.getLocalPort())
+                            .scheme(scenario.getScheme())
+                            .path("/three")
+                            .timeout(timeout, TimeUnit.MILLISECONDS)
+                            .send(result ->
+                            {
+                                if (result.getFailure() instanceof TimeoutException)
+                                    latch.countDown();
+                            });
+                        // Wait for the request to fail as it should.
+                        assertTrue(latch.await(2 * timeout, TimeUnit.MILLISECONDS));
+                    }
+                    catch (Throwable x)
+                    {
+                        throw new ServletException(x);
+                    }
+                }
+                else if ("/three".equals(target))
+                {
+                    try
+                    {
+                        // The third request must timeout.
+                        Thread.sleep(2 * timeout);
+                    }
+                    catch (InterruptedException x)
+                    {
+                        throw new ServletException(x);
+                    }
+                }
+            }
+        });
+
+        ContentResponse response = client.newRequest("localhost", connector.getLocalPort())
+            .scheme(scenario.getScheme())
+            .path("/one")
+            // The timeout should not expire, but must be present to trigger the test conditions.
+            .timeout(3 * timeout, TimeUnit.MILLISECONDS)
+            .send();
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+    }
+
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testManyRedirectsTotalTimeoutExpires(Scenario scenario) throws Exception
+    {
+        long timeout = 1000;
+        start(scenario, new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response) throws ServletException
+            {
+                try
+                {
+                    String serverURI = scenario.getScheme() + "://localhost:" + connector.getLocalPort();
+                    if ("/one".equals(target))
+                    {
+                        Thread.sleep(timeout);
+                        response.setStatus(HttpStatus.SEE_OTHER_303);
+                        response.setHeader(HttpHeader.LOCATION.asString(), serverURI + "/two");
+                    }
+                    else if ("/two".equals(target))
+                    {
+                        Thread.sleep(timeout);
+                        response.setStatus(HttpStatus.SEE_OTHER_303);
+                        response.setHeader(HttpHeader.LOCATION.asString(), serverURI + "/three");
+                    }
+                    else if ("/three".equals(target))
+                    {
+                        Thread.sleep(2 * timeout);
+                    }
+                }
+                catch (InterruptedException x)
+                {
+                    throw new ServletException(x);
+                }
+            }
+        });
+
         assertThrows(TimeoutException.class, () ->
         {
             client.setMaxRedirects(-1);
             client.newRequest("localhost", connector.getLocalPort())
                 .scheme(scenario.getScheme())
-                .timeout(1, TimeUnit.SECONDS)
+                .path("/one")
+                .timeout(3 * timeout, TimeUnit.MILLISECONDS)
                 .send();
         });
     }
@@ -569,7 +677,7 @@ public class HttpClientRedirectTest extends AbstractHttpClientServerTest
         assertEquals(200, response.getStatus());
     }
 
-    private class RedirectHandler extends EmptyServerHandler
+    private static class RedirectHandler extends EmptyServerHandler
     {
         @Override
         protected void service(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException

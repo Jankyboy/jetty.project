@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -34,7 +29,6 @@ import java.util.Enumeration;
 import java.util.EventListener;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -78,6 +72,7 @@ import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.util.Attributes;
 import org.eclipse.jetty.util.AttributesMap;
+import org.eclipse.jetty.util.Index;
 import org.eclipse.jetty.util.Loader;
 import org.eclipse.jetty.util.MultiException;
 import org.eclipse.jetty.util.StringUtil;
@@ -184,6 +179,16 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         DESTROYED
     }
 
+    /**
+     * The type of protected target match
+     * @see #_protectedTargets
+     */
+    private enum ProtectedTargetType
+    {
+        EXACT,
+        PREFIX
+    }
+
     protected ContextStatus _contextStatus = ContextStatus.NOTSET;
     protected Context _scontext;
     private final AttributesMap _attributes;
@@ -219,7 +224,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
     private final List<ServletRequestAttributeListener> _servletRequestAttributeListeners = new CopyOnWriteArrayList<>();
     private final List<ContextScopeListener> _contextListeners = new CopyOnWriteArrayList<>();
     private final Set<EventListener> _durableListeners = new HashSet<>();
-    private String[] _protectedTargets;
+    private Index<ProtectedTargetType> _protectedTargets = Index.empty(false);
     private final CopyOnWriteArrayList<AliasCheck> _aliasChecks = new CopyOnWriteArrayList<>();
 
     public enum Availability
@@ -656,7 +661,24 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
             }
 
             if (listener instanceof ServletContextListener)
+            {
+                if (_contextStatus == ContextStatus.INITIALIZED)
+                {
+                    ServletContextListener scl = (ServletContextListener)listener;
+                    _destroyServletContextListeners.add(scl);
+                    if (isStarting())
+                    {
+                        LOG.warn("ContextListener {} added whilst starting {}", scl, this);
+                        callContextInitialized(scl, new ServletContextEvent(_scontext));
+                    }
+                    else
+                    {
+                        LOG.warn("ContextListener {} added after starting {}", scl, this);
+                    }
+                }
+
                 _servletContextListeners.add((ServletContextListener)listener);
+            }
 
             if (listener instanceof ServletContextAttributeListener)
                 _servletContextAttributeListeners.add((ServletContextAttributeListener)listener);
@@ -938,31 +960,19 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
     public void contextInitialized() throws Exception
     {
         // Call context listeners
-        switch (_contextStatus)
+        if (_contextStatus == ContextStatus.NOTSET)
         {
-            case NOTSET:
+            _contextStatus = ContextStatus.INITIALIZED;
+            _destroyServletContextListeners.clear();
+            if (!_servletContextListeners.isEmpty())
             {
-                try
+                ServletContextEvent event = new ServletContextEvent(_scontext);
+                for (ServletContextListener listener : _servletContextListeners)
                 {
-                    _destroyServletContextListeners.clear();
-                    if (!_servletContextListeners.isEmpty())
-                    {
-                        ServletContextEvent event = new ServletContextEvent(_scontext);
-                        for (ServletContextListener listener : _servletContextListeners)
-                        {
-                            callContextInitialized(listener, event);
-                            _destroyServletContextListeners.add(listener);
-                        }
-                    }
+                    callContextInitialized(listener, event);
+                    _destroyServletContextListeners.add(listener);
                 }
-                finally
-                {
-                    _contextStatus = ContextStatus.INITIALIZED;
-                }
-                break;
             }
-            default:
-                break;
         }
     }
 
@@ -1191,10 +1201,11 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         {
             // context request must end with /
             baseRequest.setHandled(true);
-            if (baseRequest.getQueryString() != null)
-                response.sendRedirect(baseRequest.getRequestURI() + "/?" + baseRequest.getQueryString());
-            else
-                response.sendRedirect(baseRequest.getRequestURI() + "/");
+            String queryString = baseRequest.getQueryString();
+            baseRequest.getResponse().sendRedirect(
+                HttpServletResponse.SC_MOVED_TEMPORARILY,
+                baseRequest.getRequestURI() + (queryString == null ? "/" : ("/?" + queryString)),
+                true);
             return false;
         }
 
@@ -1224,7 +1235,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         final Thread currentThread = Thread.currentThread();
         final ClassLoader oldClassloader = currentThread.getContextClassLoader();
         Context oldContext;
-        String oldPathInContext = null;
+        String oldPathInContext = baseRequest.getPathInContext();;
         String pathInContext = target;
 
         DispatcherType dispatch = baseRequest.getDispatcherType();
@@ -1237,6 +1248,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
             // check the target.
             if (DispatcherType.REQUEST.equals(dispatch) || DispatcherType.ASYNC.equals(dispatch))
             {
+                // TODO: remove this once isCompact() has been deprecated for several releases.
                 if (isCompactPath())
                     target = URIUtil.compactPath(target);
                 if (!checkContext(target, baseRequest, response))
@@ -1266,14 +1278,15 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
 
         try
         {
-            oldPathInContext = baseRequest.getPathInContext();
-
             // Update the paths
-            baseRequest.setContext(_scontext, pathInContext);
-            __context.set(_scontext);
+            baseRequest.setContext(_scontext,
+                (DispatcherType.INCLUDE.equals(dispatch) || !target.startsWith("/")) ? oldPathInContext : pathInContext);
 
             if (oldContext != _scontext)
+            {
+                __context.set(_scontext);
                 enterScope(baseRequest, dispatch);
+            }
 
             if (LOG.isDebugEnabled())
                 LOG.debug("context={}|{}|{} @ {}", baseRequest.getContextPath(), baseRequest.getServletPath(), baseRequest.getPathInfo(), this);
@@ -1290,10 +1303,12 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
                 if (_classLoader != null)
                     currentThread.setContextClassLoader(oldClassloader);
 
-                // reset the context and servlet path.
-                baseRequest.setContext(oldContext, oldPathInContext);
+                // reset the context
                 __context.set(oldContext);
             }
+
+            // reset pathInContext
+            baseRequest.setContext(oldContext, oldPathInContext);
         }
     }
 
@@ -1470,30 +1485,16 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
      */
     public boolean isProtectedTarget(String target)
     {
-        if (target == null || _protectedTargets == null)
+        if (target == null || _protectedTargets.isEmpty())
             return false;
 
-        while (target.startsWith("//"))
-        {
+        if (target.startsWith("//"))
             target = URIUtil.compactPath(target);
-        }
 
-        for (int i = 0; i < _protectedTargets.length; i++)
-        {
-            String t = _protectedTargets[i];
-            if (StringUtil.startsWithIgnoreCase(target, t))
-            {
-                if (target.length() == t.length())
-                    return true;
+        ProtectedTargetType type = _protectedTargets.getBest(target);
 
-                // Check that the target prefix really is a path segment, thus
-                // it can end with /, a query, a target or a parameter
-                char c = target.charAt(t.length());
-                if (c == '/' || c == '?' || c == '#' || c == ';')
-                    return true;
-            }
-        }
-        return false;
+        return type == ProtectedTargetType.PREFIX ||
+            type == ProtectedTargetType.EXACT && _protectedTargets.get(target) == ProtectedTargetType.EXACT;
     }
 
     /**
@@ -1501,13 +1502,22 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
      */
     public void setProtectedTargets(String[] targets)
     {
-        if (targets == null)
+        Index.Builder<ProtectedTargetType> builder = new Index.Builder<>();
+        if (targets != null)
         {
-            _protectedTargets = null;
-            return;
-        }
+            for (String t : targets)
+            {
+                if (!t.startsWith("/"))
+                    throw new IllegalArgumentException("Bad protected target: " + t);
 
-        _protectedTargets = Arrays.copyOf(targets, targets.length);
+                builder.with(t, ProtectedTargetType.EXACT);
+                builder.with(t + "/", ProtectedTargetType.PREFIX);
+                builder.with(t + "?", ProtectedTargetType.PREFIX);
+                builder.with(t + "#", ProtectedTargetType.PREFIX);
+                builder.with(t + ";", ProtectedTargetType.PREFIX);
+            }
+        }
+        _protectedTargets = builder.caseSensitive(false).build();
     }
 
     public String[] getProtectedTargets()
@@ -1515,7 +1525,9 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         if (_protectedTargets == null)
             return null;
 
-        return Arrays.copyOf(_protectedTargets, _protectedTargets.length);
+        return _protectedTargets.keySet().stream()
+            .filter(s -> _protectedTargets.get(s) == ProtectedTargetType.EXACT)
+            .toArray(String[]::new);
     }
 
     @Override
@@ -1794,7 +1806,9 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
 
     /**
      * @return True if URLs are compacted to replace multiple '/'s with a single '/'
+     * @deprecated use {@code CompactPathRule} with {@code RewriteHandler} instead.
      */
+    @Deprecated
     public boolean isCompactPath()
     {
         return _compactPath;
@@ -1803,6 +1817,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
     /**
      * @param compactPath True if URLs are compacted to replace multiple '/'s with a single '/'
      */
+    @Deprecated
     public void setCompactPath(boolean compactPath)
     {
         _compactPath = compactPath;
@@ -1913,7 +1928,9 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
 
         try
         {
-            path = URIUtil.canonicalPath(path);
+            // addPath with accept non-canonical paths that don't go above the root,
+            // but will treat them as aliases. So unless allowed by an AliasChecker
+            // they will be rejected below.
             Resource resource = _baseResource.addPath(path);
 
             if (checkAlias(path, resource))
@@ -1942,9 +1959,8 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
                 LOG.debug("Aliased resource: {}~={}", resource, resource.getAlias());
 
             // alias checks
-            for (Iterator<AliasCheck> i = getAliasChecks().iterator(); i.hasNext(); )
+            for (AliasCheck check : getAliasChecks())
             {
-                AliasCheck check = i.next();
                 if (check.check(path, resource))
                 {
                     if (LOG.isDebugEnabled())
@@ -1997,7 +2013,6 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
     {
         try
         {
-            path = URIUtil.canonicalPath(path);
             Resource resource = getResource(path);
 
             if (resource != null && resource.exists())
@@ -2197,6 +2212,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         @Override
         public RequestDispatcher getRequestDispatcher(String uriInContext)
         {
+            // uriInContext is encoded, potentially with query.
             if (uriInContext == null)
                 return null;
 
@@ -2206,16 +2222,15 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
             try
             {
                 String contextPath = getContextPath();
-                String pathInfo;
-
+                // uriInContext is canonicalized by HttpURI.
                 HttpURI.Mutable uri = HttpURI.build(uriInContext);
-                pathInfo = URIUtil.canonicalPath(uri.getDecodedPath());
+                String pathInfo = uri.getDecodedPath();
                 if (StringUtil.isEmpty(pathInfo))
                     return null;
 
                 if (!StringUtil.isEmpty(contextPath))
                 {
-                    uri.path(URIUtil.addPaths(contextPath,uri.getPath()));
+                    uri.path(URIUtil.addPaths(contextPath, uri.getPath()));
                     pathInfo = uri.getDecodedPath().substring(contextPath.length());
                 }
                 return new Dispatcher(ContextHandler.this, uri, pathInfo);
@@ -2230,6 +2245,10 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         @Override
         public String getRealPath(String path)
         {
+            // This is an API call from the application which may have arbitrary non canonical paths passed
+            // Thus we canonicalize here, to avoid the enforcement of only canonical paths in
+            // ContextHandler.this.getResource(path).
+            path = URIUtil.canonicalPath(path);
             if (path == null)
                 return null;
             if (path.length() == 0)
@@ -2258,6 +2277,12 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         @Override
         public URL getResource(String path) throws MalformedURLException
         {
+            // This is an API call from the application which may have arbitrary non canonical paths passed
+            // Thus we canonicalize here, to avoid the enforcement of only canonical paths in
+            // ContextHandler.this.getResource(path).
+            path = URIUtil.canonicalPath(path);
+            if (path == null)
+                return null;
             Resource resource = ContextHandler.this.getResource(path);
             if (resource != null && resource.exists())
                 return resource.getURI().toURL();
@@ -2288,6 +2313,12 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
         @Override
         public Set<String> getResourcePaths(String path)
         {
+            // This is an API call from the application which may have arbitrary non canonical paths passed
+            // Thus we canonicalize here, to avoid the enforcement of only canonical paths in
+            // ContextHandler.this.getResource(path).
+            path = URIUtil.canonicalPath(path);
+            if (path == null)
+                return null;
             return ContextHandler.this.getResourcePaths(path);
         }
 

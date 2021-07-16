@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,11 +16,15 @@ package org.eclipse.jetty.start;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.Enumeration;
 import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class FS
 {
@@ -167,5 +166,53 @@ public class FS
     public static Path toRealPath(Path path) throws IOException
     {
         return path.toRealPath();
+    }
+
+    public static void extract(Path archive, Path destination) throws IOException
+    {
+        String filename = archive.getFileName().toString().toLowerCase(Locale.US);
+
+        if (filename.endsWith(".jar") || filename.endsWith(".zip"))
+        {
+            extractZip(archive, destination);
+        }
+        else
+        {
+            throw new IOException("Unable to extract unsupported archive format: " + archive);
+        }
+    }
+
+    public static void extractZip(Path archive, Path destination) throws IOException
+    {
+        try (ZipFile zip = new ZipFile(archive.toFile()))
+        {
+            StartLog.info("extract %s to %s", archive, destination);
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements())
+            {
+                ZipEntry entry = entries.nextElement();
+
+                if (entry.isDirectory() || entry.getName().startsWith("/META-INF"))
+                {
+                    // skip
+                    continue;
+                }
+
+                Path destFile = destination.resolve(entry.getName());
+                if (!Files.exists(destFile))
+                {
+                    FS.ensureDirectoryExists(destFile.getParent());
+                    try (InputStream input = zip.getInputStream(entry))
+                    {
+                        StartLog.debug("extracting %s", destFile);
+                        Files.copy(input, destFile);
+                    }
+                }
+                else
+                {
+                    StartLog.debug("skipping extract (file exists) %s", destFile);
+                }
+            }
+        }
     }
 }

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -159,11 +154,16 @@ public class Module implements Comparable<Module>
     private final List<String> _depends = new ArrayList<>();
 
     /**
-     * Optional dependencies from {@code [optional]} section are structural in nature.
+     * Module names from {@code [before]} section
      */
-    private final Set<String> _optional = new HashSet<>();
+    private final Set<String> _before = new HashSet<>();
 
-    public Module(BaseHome basehome, Path path) throws FileNotFoundException, IOException
+    /**
+     * Module names from {@code [after]} section
+     */
+    private final Set<String> _after = new HashSet<>();
+
+    public Module(BaseHome basehome, Path path) throws IOException
     {
         super();
         _path = path;
@@ -242,9 +242,12 @@ public class Module implements Comparable<Module>
         List<String> tmp = _depends.stream().map(expander).collect(Collectors.toList());
         _depends.clear();
         _depends.addAll(tmp);
-        tmp = _optional.stream().map(expander).collect(Collectors.toList());
-        _optional.clear();
-        _optional.addAll(tmp);
+        tmp = _after.stream().map(expander).collect(Collectors.toList());
+        _after.clear();
+        _after.addAll(tmp);
+        tmp = _before.stream().map(expander).collect(Collectors.toList());
+        _before.clear();
+        _before.addAll(tmp);
     }
 
     public List<String> getDefaultConfig()
@@ -375,7 +378,9 @@ public class Module implements Comparable<Module>
                         // for the [ini-template] section
                         if ("INI-TEMPLATE".equals(sectionType))
                         {
-                            _iniTemplate.add(line);
+                            // Exclude asciidoc tag lines used in documentation.
+                            if (!line.contains("tag::") && !line.contains("end::"))
+                                _iniTemplate.add(line);
                         }
                     }
                     else
@@ -429,8 +434,12 @@ public class Module implements Comparable<Module>
                             case "PROVIDES":
                                 _provides.add(line);
                                 break;
+                            case "BEFORE":
+                                _before.add(line);
+                                break;
                             case "OPTIONAL":
-                                _optional.add(line);
+                            case "AFTER":
+                                _after.add(line);
                                 break;
                             case "EXEC":
                                 _jvmArgs.add(line);
@@ -512,9 +521,24 @@ public class Module implements Comparable<Module>
         return new HashSet<>(_provides);
     }
 
+    public Set<String> getBefore()
+    {
+        return Set.copyOf(_before);
+    }
+
+    public Set<String> getAfter()
+    {
+        return Set.copyOf(_after);
+    }
+
+    /**
+     * @return the module names in the [after] section
+     * @deprecated use {@link #getAfter()} instead
+     */
+    @Deprecated
     public Set<String> getOptional()
     {
-        return new HashSet<>(_optional);
+        return getAfter();
     }
 
     public List<String> getDescription()

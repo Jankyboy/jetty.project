@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -38,8 +33,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
-import org.eclipse.jetty.util.ArrayTernaryTrie;
 import org.eclipse.jetty.util.IncludeExcludeSet;
+import org.eclipse.jetty.util.Index;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.URIUtil;
@@ -70,8 +65,6 @@ import org.slf4j.LoggerFactory;
 
 public class ClassMatcher extends AbstractSet<String>
 {
-    private static final Logger LOG = LoggerFactory.getLogger(ClassMatcher.class);
-
     public static class Entry
     {
         private final String _pattern;
@@ -180,7 +173,10 @@ public class ClassMatcher extends AbstractSet<String>
 
     public static class ByPackage extends AbstractSet<Entry> implements Predicate<String>
     {
-        private final ArrayTernaryTrie.Growing<Entry> _entries = new ArrayTernaryTrie.Growing<>(false, 512, 512);
+        private final Index.Mutable<Entry> _entries = new Index.Builder<Entry>()
+            .caseSensitive(true)
+            .mutable()
+            .build();
 
         @Override
         public boolean test(String name)
@@ -383,7 +379,10 @@ public class ClassMatcher extends AbstractSet<String>
     @SuppressWarnings("serial")
     public static class ByModule extends HashSet<Entry> implements Predicate<URI>
     {
-        private final ArrayTernaryTrie.Growing<Entry> _entries = new ArrayTernaryTrie.Growing<>(false, 512, 512);
+        private final Index.Mutable<Entry> _entries = new Index.Builder<Entry>()
+            .caseSensitive(true)
+            .mutable()
+            .build();
 
         @Override
         public boolean test(URI uri)
@@ -721,9 +720,8 @@ public class ClassMatcher extends AbstractSet<String>
         {
             return combine(_patterns, clazz.getName(), _locations, () -> TypeUtil.getLocationOfClass(clazz));
         }
-        catch (Exception e)
+        catch (Exception ignored)
         {
-            LOG.warn("Unable to match against {}", clazz, e);
         }
         return false;
     }
@@ -743,14 +741,13 @@ public class ClassMatcher extends AbstractSet<String>
             {
                 return URIUtil.getJarSource(url.toURI());
             }
-            catch (URISyntaxException e)
+            catch (URISyntaxException ignored)
             {
-                LOG.trace("IGNORED", e);
                 return null;
             }
         });
     }
-    
+
     /**
      * Match a class against inclusions and exclusions by name and location.
      * Name based checks are performed before location checks. For a class to match,
