@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://www.eclipse.org/jetty/configure_10_0.dtd">
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://jetty.org/configure_10_0.dtd">
 
 <Configure id="Server" class="org.eclipse.jetty.server.Server">
   
@@ -10,6 +10,7 @@
        <Set name="infinispanIdleTimeoutSec" property="jetty.session.infinispan.idleTimeout.seconds"/>
        <Set name="gracePeriodSec" property="jetty.session.gracePeriod.seconds"/>
        <Set name="savePeriodSec" property="jetty.session.savePeriod.seconds"/>
+       <Set name="serialization" property="jetty.session.infinispan.serialization"/>
     </New>
    </Arg>
   </Call>

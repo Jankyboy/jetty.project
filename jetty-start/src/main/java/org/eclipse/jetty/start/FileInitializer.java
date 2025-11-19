@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,13 +15,13 @@ package org.eclipse.jetty.start;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URLConnection;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -114,7 +109,11 @@ public abstract class FileInitializer
 
         Path destination = _basehome.getBasePath(location);
 
-        // now on copy/download paths (be safe above all else)
+        // We restrict our behavior to only modifying what exists in ${jetty.base}.
+        // If the user decides they want to use advanced setups, such as symlinks to point
+        // to content outside of ${jetty.base}, that is their decision ad we will not
+        // attempt to save them from themselves.
+        // Note: All copy and extract steps, will not replace files that already exist.
         if (destination != null && !destination.startsWith(_basehome.getBasePath()))
             throw new IOException("For security reasons, Jetty start is unable to process file resource not in ${jetty.base} - " + location);
 
@@ -123,44 +122,6 @@ public abstract class FileInitializer
             destination = destination.resolve(uri.getSchemeSpecificPart().substring(uri.getSchemeSpecificPart().lastIndexOf('/') + 1));
 
         return destination;
-    }
-
-    protected void download(URI uri, Path destination) throws IOException
-    {
-        if (FS.ensureDirectoryExists(destination.getParent()))
-            StartLog.info("mkdir " + _basehome.toShortForm(destination.getParent()));
-
-        StartLog.info("download %s to %s", uri, _basehome.toShortForm(destination));
-
-        HttpURLConnection http = (HttpURLConnection)uri.toURL().openConnection();
-        http.setInstanceFollowRedirects(true);
-        http.setAllowUserInteraction(false);
-
-        int status = http.getResponseCode();
-
-        if (status != HttpURLConnection.HTTP_OK)
-        {
-            throw new IOException("URL GET Failure [" + status + "/" + http.getResponseMessage() + "] on " + uri);
-        }
-
-        byte[] buf = new byte[8192];
-        try (InputStream in = http.getInputStream();
-             OutputStream out = Files.newOutputStream(destination, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))
-        {
-            while (true)
-            {
-                int len = in.read(buf);
-
-                if (len > 0)
-                {
-                    out.write(buf, 0, len);
-                }
-                if (len < 0)
-                {
-                    break;
-                }
-            }
-        }
     }
 
     /**
@@ -213,7 +174,11 @@ public abstract class FileInitializer
                     if (copyDirectory(from, to))
                         modified = true;
                 }
-                else if (!Files.exists(to))
+                else if (Files.exists(to))
+                {
+                    StartLog.debug("skipping copy (file exists in destination) %s", to);
+                }
+                else
                 {
                     StartLog.info("copy %s to %s", _basehome.toShortForm(from), _basehome.toShortForm(to));
                     Files.copy(from, to);

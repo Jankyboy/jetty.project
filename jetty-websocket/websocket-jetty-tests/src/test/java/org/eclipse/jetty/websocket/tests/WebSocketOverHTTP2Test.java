@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -23,6 +18,7 @@ import java.io.InterruptedIOException;
 import java.net.ConnectException;
 import java.net.URI;
 import java.nio.channels.ClosedChannelException;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -61,16 +57,20 @@ import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.api.exceptions.UpgradeException;
 import org.eclipse.jetty.websocket.client.WebSocketClient;
+import org.eclipse.jetty.websocket.core.server.internal.UpgradeHttpServletRequest;
+import org.eclipse.jetty.websocket.server.JettyWebSocketServerContainer;
 import org.eclipse.jetty.websocket.server.JettyWebSocketServlet;
 import org.eclipse.jetty.websocket.server.JettyWebSocketServletFactory;
 import org.eclipse.jetty.websocket.server.config.JettyWebSocketServletContainerInitializer;
-import org.eclipse.jetty.websocket.util.server.internal.UpgradeHttpServletRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsStringIgnoringCase;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -83,6 +83,7 @@ public class WebSocketOverHTTP2Test
     private ServerConnector connector;
     private ServerConnector tlsConnector;
     private WebSocketClient wsClient;
+    private ServletContextHandler context;
 
     private void startServer() throws Exception
     {
@@ -115,7 +116,7 @@ public class WebSocketOverHTTP2Test
         tlsConnector = new ServerConnector(server, 1, 1, ssl, alpn, h1s, h2s);
         server.addConnector(tlsConnector);
 
-        ServletContextHandler context = new ServletContextHandler(server, "/");
+        context = new ServletContextHandler(server, "/");
         context.addServlet(new ServletHolder(servlet), "/ws/*");
         JettyWebSocketServletContainerInitializer.configure(context, null);
 
@@ -161,7 +162,7 @@ public class WebSocketOverHTTP2Test
         startClient(protocolFn);
 
         EventSocket wsEndPoint = new EventSocket();
-        URI uri = URI.create("ws://localhost:" + connector.getLocalPort() + "/ws/echo");
+        URI uri = URI.create("ws://localhost:" + connector.getLocalPort() + "/ws/echo/query?param=value");
         Session session = wsClient.connect(wsEndPoint, uri).get(5, TimeUnit.SECONDS);
 
         String text = "websocket";
@@ -239,6 +240,7 @@ public class WebSocketOverHTTP2Test
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Issue #6660 - Windows does not throw ConnectException")
     public void testWebSocketConnectPortDoesNotExist() throws Exception
     {
         startServer();
@@ -339,12 +341,52 @@ public class WebSocketOverHTTP2Test
         assertThat(cause, instanceOf(ClosedChannelException.class));
     }
 
+    @Test
+    public void testServerTimeout() throws Exception
+    {
+        startServer();
+        JettyWebSocketServerContainer container = JettyWebSocketServerContainer.getContainer(context.getServletContext());
+        startClient(clientConnector -> new ClientConnectionFactoryOverHTTP2.HTTP2(new HTTP2Client(clientConnector)));
+        EchoSocket serverEndpoint = new EchoSocket();
+        container.addMapping("/specialEcho", (req, resp) -> serverEndpoint);
+
+        // Set up idle timeouts.
+        long timeout = 1000;
+        container.setIdleTimeout(Duration.ofMillis(timeout));
+        wsClient.setIdleTimeout(Duration.ZERO);
+
+        // Setup a websocket connection.
+        EventSocket clientEndpoint = new EventSocket();
+        URI uri = URI.create("ws://localhost:" + connector.getLocalPort() + "/specialEcho");
+        Session session = wsClient.connect(clientEndpoint, uri).get(5, TimeUnit.SECONDS);
+        session.getRemote().sendString("hello world");
+        String received = clientEndpoint.textMessages.poll(5, TimeUnit.SECONDS);
+        assertThat(received, equalTo("hello world"));
+
+        // Wait for timeout on server.
+        assertTrue(serverEndpoint.closeLatch.await(timeout * 2, TimeUnit.MILLISECONDS));
+        assertThat(serverEndpoint.closeCode, equalTo(StatusCode.SHUTDOWN));
+        assertThat(serverEndpoint.closeReason, containsStringIgnoringCase("timeout"));
+        assertNotNull(serverEndpoint.error);
+
+        // Wait for timeout on client.
+        assertTrue(clientEndpoint.closeLatch.await(timeout * 2, TimeUnit.MILLISECONDS));
+        assertThat(clientEndpoint.closeCode, equalTo(StatusCode.SHUTDOWN));
+        assertThat(clientEndpoint.closeReason, containsStringIgnoringCase("timeout"));
+        assertNull(clientEndpoint.error);
+    }
+
     private static class TestJettyWebSocketServlet extends JettyWebSocketServlet
     {
         @Override
         protected void configure(JettyWebSocketServletFactory factory)
         {
             factory.addMapping("/ws/echo", (request, response) -> new EchoSocket());
+            factory.addMapping("/ws/echo/query", (request, response) ->
+            {
+                assertNotNull(request.getQueryString());
+                return new EchoSocket();
+            });
             factory.addMapping("/ws/null", (request, response) -> null);
             factory.addMapping("/ws/throw", (request, response) ->
             {
@@ -352,8 +394,8 @@ public class WebSocketOverHTTP2Test
             });
             factory.addMapping("/ws/connectionClose", (request, response) ->
             {
-                UpgradeHttpServletRequest servletRequest = (UpgradeHttpServletRequest)request.getHttpServletRequest();
-                Request baseRequest = servletRequest.getBaseRequest();
+                UpgradeHttpServletRequest upgradeRequest = (UpgradeHttpServletRequest)request.getHttpServletRequest();
+                Request baseRequest = (Request)upgradeRequest.getHttpServletRequest();
                 baseRequest.getHttpChannel().getEndPoint().close();
                 return new EchoSocket();
             });

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -19,13 +14,14 @@
 package org.eclipse.jetty.http.client;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.BlockingQueue;
 import java.util.function.Consumer;
 import javax.servlet.http.HttpServlet;
@@ -42,34 +38,42 @@ import org.eclipse.jetty.http2.client.http.HttpClientTransportOverHTTP2;
 import org.eclipse.jetty.http2.server.AbstractHTTP2ServerConnectionFactory;
 import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
 import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
+import org.eclipse.jetty.http3.client.HTTP3Client;
+import org.eclipse.jetty.http3.client.http.HttpClientTransportOverHTTP3;
+import org.eclipse.jetty.http3.server.AbstractHTTP3ServerConnectionFactory;
+import org.eclipse.jetty.http3.server.HTTP3ServerConnectionFactory;
+import org.eclipse.jetty.http3.server.HTTP3ServerConnector;
+import org.eclipse.jetty.io.ArrayByteBufferPool;
+import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.ClientConnector;
 import org.eclipse.jetty.jmx.MBeanContainer;
+import org.eclipse.jetty.quic.server.QuicServerConnector;
 import org.eclipse.jetty.server.AbstractConnector;
 import org.eclipse.jetty.server.ConnectionFactory;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Handler;
+import org.eclipse.jetty.server.HostHeaderCustomizer;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.NetworkConnector;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.eclipse.jetty.unixsocket.client.HttpClientTransportOverUnixSockets;
-import org.eclipse.jetty.unixsocket.server.UnixSocketConnector;
+import org.eclipse.jetty.unixdomain.server.UnixDomainServerConnector;
 import org.eclipse.jetty.util.BlockingArrayQueue;
+import org.eclipse.jetty.util.JavaVersion;
 import org.eclipse.jetty.util.SocketAddressResolver;
-import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.junit.jupiter.api.Assumptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.eclipse.jetty.http.client.Transport.UNIX_SOCKET;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TransportScenario
 {
@@ -83,66 +87,27 @@ public class TransportScenario
     protected ServletContextHandler context;
     protected String servletPath = "/servlet";
     protected HttpClient client;
-    protected Path sockFile;
+    protected Path unixDomainPath;
     protected final BlockingQueue<String> requestLog = new BlockingArrayQueue<>();
 
-    public TransportScenario(final Transport transport) throws IOException
+    public TransportScenario(Transport transport) throws IOException
     {
         this.transport = transport;
 
-        Path unixSocketTmp;
-        String tmpProp = System.getProperty("unix.socket.tmp");
-        if (StringUtil.isBlank(tmpProp))
-            unixSocketTmp = MavenTestingUtils.getTargetPath();
-        else
-            unixSocketTmp = Paths.get(tmpProp);
-        sockFile = Files.createTempFile(unixSocketTmp, "unix", ".sock");
-        if (sockFile.toAbsolutePath().toString().length() > UnixSocketConnector.MAX_UNIX_SOCKET_PATH_LENGTH)
+        if (transport == Transport.UNIX_DOMAIN)
         {
-            Files.delete(sockFile);
-            Path tmp = Paths.get("/tmp");
-            assumeTrue(Files.exists(tmp) && Files.isDirectory(tmp));
-            sockFile = Files.createTempFile(tmp, "unix", ".sock");
+            Assumptions.assumeTrue(JavaVersion.VERSION.getPlatform() >= 16);
+            String dir = System.getProperty("jetty.unixdomain.dir");
+            assertNotNull(dir);
+            unixDomainPath = Files.createTempFile(Path.of(dir), "unix_", ".sock");
+            assertTrue(unixDomainPath.toAbsolutePath().toString().length() < UnixDomainServerConnector.MAX_UNIX_DOMAIN_PATH_LENGTH, "Unix-Domain path too long");
+            Files.delete(unixDomainPath);
         }
-        Files.delete(sockFile);
-
-        // Disable UNIX_SOCKET due to jnr/jnr-unixsocket#69.
-        Assumptions.assumeTrue(transport != UNIX_SOCKET);
-    }
-
-    public Optional<String> getNetworkConnectorLocalPort()
-    {
-        if (connector instanceof ServerConnector)
-        {
-            ServerConnector serverConnector = (ServerConnector)connector;
-            return Optional.of(Integer.toString(serverConnector.getLocalPort()));
-        }
-
-        return Optional.empty();
-    }
-
-    public Optional<Integer> getNetworkConnectorLocalPortInt()
-    {
-        if (connector instanceof ServerConnector)
-        {
-            ServerConnector serverConnector = (ServerConnector)connector;
-            return Optional.of(serverConnector.getLocalPort());
-        }
-
-        return Optional.empty();
     }
 
     public String getScheme()
     {
         return transport.isTlsBased() ? "https" : "http";
-    }
-
-    public HTTP2Client newHTTP2Client(SslContextFactory.Client sslContextFactory)
-    {
-        ClientConnector clientConnector = new ClientConnector();
-        clientConnector.setSelectors(1);
-        clientConnector.setSslContextFactory(sslContextFactory);
-        return new HTTP2Client(clientConnector);
     }
 
     public HttpClient newHttpClient(HttpClientTransport transport)
@@ -152,13 +117,33 @@ public class TransportScenario
 
     public Connector newServerConnector(Server server)
     {
-        if (transport == Transport.UNIX_SOCKET)
+        switch (transport)
         {
-            UnixSocketConnector unixSocketConnector = new UnixSocketConnector(server, provideServerConnectionFactory(transport));
-            unixSocketConnector.setUnixSocket(sockFile.toString());
-            return unixSocketConnector;
+            case HTTP:
+            case HTTPS:
+            case H2C:
+            case H2:
+            case FCGI:
+                ByteBufferPool bufferPool = new ArrayByteBufferPool.Tracking();
+                return new ServerConnector(server, null, null, bufferPool, 1, 1, provideServerConnectionFactory(transport));
+            case H3:
+                HTTP3ServerConnector http3ServerConnector = new HTTP3ServerConnector(server, sslContextFactory, provideServerConnectionFactory(transport));
+                http3ServerConnector.getQuicConfiguration().setPemWorkDirectory(Path.of(System.getProperty("java.io.tmpdir")));
+                return http3ServerConnector;
+            case UNIX_DOMAIN:
+                UnixDomainServerConnector connector = new UnixDomainServerConnector(server, provideServerConnectionFactory(transport));
+                connector.setUnixDomainPath(unixDomainPath);
+                return connector;
+            default:
+                throw new IllegalStateException();
         }
-        return new ServerConnector(server, provideServerConnectionFactory(transport));
+    }
+
+    public OptionalInt getServerPort()
+    {
+        if (connector instanceof NetworkConnector)
+            return OptionalInt.of(((NetworkConnector)connector).getLocalPort());
+        return OptionalInt.empty();
     }
 
     public String newURI()
@@ -166,8 +151,7 @@ public class TransportScenario
         StringBuilder ret = new StringBuilder();
         ret.append(getScheme());
         ret.append("://localhost");
-        Optional<String> localPort = getNetworkConnectorLocalPort();
-        localPort.ifPresent(s -> ret.append(':').append(s));
+        getServerPort().ifPresent(s -> ret.append(':').append(s));
         return ret.toString();
     }
 
@@ -186,16 +170,30 @@ public class TransportScenario
             case H2C:
             case H2:
             {
-                HTTP2Client http2Client = newHTTP2Client(sslContextFactory);
+                ClientConnector clientConnector = new ClientConnector();
+                clientConnector.setSelectors(1);
+                clientConnector.setSslContextFactory(sslContextFactory);
+                HTTP2Client http2Client = new HTTP2Client(clientConnector);
                 return new HttpClientTransportOverHTTP2(http2Client);
+            }
+            case H3:
+            {
+                HTTP3Client http3Client = new HTTP3Client();
+                ClientConnector clientConnector = http3Client.getClientConnector();
+                clientConnector.setSelectors(1);
+                clientConnector.setSslContextFactory(sslContextFactory);
+                return new HttpClientTransportOverHTTP3(http3Client);
             }
             case FCGI:
             {
                 return new HttpClientTransportOverFCGI(1, "");
             }
-            case UNIX_SOCKET:
+            case UNIX_DOMAIN:
             {
-                return new HttpClientTransportOverUnixSockets(sockFile.toString());
+                ClientConnector clientConnector = ClientConnector.forUnixDomain(unixDomainPath);
+                clientConnector.setSelectors(1);
+                clientConnector.setSslContextFactory(sslContextFactory);
+                return new HttpClientTransportOverHTTP(clientConnector);
             }
             default:
             {
@@ -209,8 +207,8 @@ public class TransportScenario
         List<ConnectionFactory> result = new ArrayList<>();
         switch (transport)
         {
-            case UNIX_SOCKET:
             case HTTP:
+            case UNIX_DOMAIN:
             {
                 result.add(new HttpConnectionFactory(httpConfig));
                 break;
@@ -226,18 +224,28 @@ public class TransportScenario
             }
             case H2C:
             {
+                httpConfig.addCustomizer(new HostHeaderCustomizer());
                 result.add(new HTTP2CServerConnectionFactory(httpConfig));
                 break;
             }
             case H2:
             {
                 httpConfig.addCustomizer(new SecureRequestCustomizer());
+                httpConfig.addCustomizer(new HostHeaderCustomizer());
                 HTTP2ServerConnectionFactory h2 = new HTTP2ServerConnectionFactory(httpConfig);
                 ALPNServerConnectionFactory alpn = new ALPNServerConnectionFactory("h2");
                 SslConnectionFactory ssl = new SslConnectionFactory(sslContextFactory, alpn.getProtocol());
                 result.add(ssl);
                 result.add(alpn);
                 result.add(h2);
+                break;
+            }
+            case H3:
+            {
+                httpConfig.addCustomizer(new SecureRequestCustomizer());
+                httpConfig.addCustomizer(new HostHeaderCustomizer());
+                HTTP3ServerConnectionFactory h3 = new HTTP3ServerConnectionFactory(httpConfig);
+                result.add(h3);
                 break;
             }
             case FCGI:
@@ -250,7 +258,7 @@ public class TransportScenario
                 throw new IllegalArgumentException();
             }
         }
-        return result.toArray(new ConnectionFactory[0]);
+        return result.toArray(ConnectionFactory[]::new);
     }
 
     public void setConnectionIdleTimeout(long idleTimeout)
@@ -259,13 +267,35 @@ public class TransportScenario
             ((AbstractConnector)connector).setIdleTimeout(idleTimeout);
     }
 
-    public void setServerIdleTimeout(long idleTimeout)
+    public void setRequestIdleTimeout(long idleTimeout)
     {
         AbstractHTTP2ServerConnectionFactory h2 = connector.getConnectionFactory(AbstractHTTP2ServerConnectionFactory.class);
         if (h2 != null)
+        {
             h2.setStreamIdleTimeout(idleTimeout);
+        }
         else
-            setConnectionIdleTimeout(idleTimeout);
+        {
+            AbstractHTTP3ServerConnectionFactory h3 = connector.getConnectionFactory(AbstractHTTP3ServerConnectionFactory.class);
+            if (h3 != null)
+                h3.getHTTP3Configuration().setStreamIdleTimeout(idleTimeout);
+            else
+                setConnectionIdleTimeout(idleTimeout);
+        }
+    }
+
+    public void setMaxRequestsPerConnection(int maxRequestsPerConnection)
+    {
+        AbstractHTTP2ServerConnectionFactory h2 = connector.getConnectionFactory(AbstractHTTP2ServerConnectionFactory.class);
+        if (h2 != null)
+        {
+            h2.setMaxConcurrentStreams(maxRequestsPerConnection);
+        }
+        else
+        {
+            if (connector instanceof QuicServerConnector)
+                ((QuicServerConnector)connector).getQuicConfiguration().setMaxBidirectionalRemoteStreams(maxRequestsPerConnection);
+        }
     }
 
     public void start(Handler handler) throws Exception
@@ -320,6 +350,12 @@ public class TransportScenario
 
     public void startServer(Handler handler) throws Exception
     {
+        prepareServer(handler);
+        server.start();
+    }
+
+    protected void prepareServer(Handler handler)
+    {
         sslContextFactory = newServerSslContextFactory();
         QueuedThreadPool serverThreads = new QueuedThreadPool();
         serverThreads.setName("server");
@@ -329,23 +365,12 @@ public class TransportScenario
         server.addBean(mbeanContainer);
         connector = newServerConnector(server);
         server.addConnector(connector);
-
         server.setRequestLog((request, response) ->
         {
             int status = response.getCommittedMetaData().getStatus();
             requestLog.offer(String.format("%s %s %s %03d", request.getMethod(), request.getRequestURI(), request.getProtocol(), status));
         });
-
         server.setHandler(handler);
-
-        try
-        {
-            server.start();
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
     }
 
     protected SslContextFactory.Server newServerSslContextFactory()
@@ -365,10 +390,23 @@ public class TransportScenario
 
     private void configureSslContextFactory(SslContextFactory sslContextFactory)
     {
-        sslContextFactory.setKeyStorePath("src/test/resources/keystore.p12");
-        sslContextFactory.setKeyStorePassword("storepwd");
-        sslContextFactory.setUseCipherSuitesOrder(true);
-        sslContextFactory.setCipherComparator(HTTP2Cipher.COMPARATOR);
+        try
+        {
+            KeyStore keystore = KeyStore.getInstance("PKCS12");
+            try (InputStream is = Files.newInputStream(Path.of("src/test/resources/keystore.p12")))
+            {
+                keystore.load(is, "storepwd".toCharArray());
+            }
+            sslContextFactory.setTrustStore(keystore);
+            sslContextFactory.setKeyStore(keystore);
+            sslContextFactory.setKeyStorePassword("storepwd");
+            sslContextFactory.setUseCipherSuitesOrder(true);
+            sslContextFactory.setCipherComparator(HTTP2Cipher.COMPARATOR);
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     public void stopClient() throws Exception
@@ -403,15 +441,15 @@ public class TransportScenario
             LOG.trace("IGNORED", x);
         }
 
-        if (sockFile != null)
+        if (unixDomainPath != null)
         {
             try
             {
-                Files.deleteIfExists(sockFile);
+                Files.deleteIfExists(unixDomainPath);
             }
             catch (IOException e)
             {
-                LOG.warn("Unable to delete sockFile: {}", sockFile, e);
+                LOG.warn("Unable to delete sockFile: {}", unixDomainPath, e);
             }
         }
     }

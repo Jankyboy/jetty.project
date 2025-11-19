@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -32,16 +27,32 @@ public class ServerParser extends Parser
 {
     private static final Logger LOG = LoggerFactory.getLogger(ServerParser.class);
 
-    private final Listener listener;
-    private final PrefaceParser prefaceParser;
+    private PrefaceParser prefaceParser;
     private State state = State.PREFACE;
     private boolean notifyPreface = true;
 
-    public ServerParser(ByteBufferPool byteBufferPool, Listener listener, int maxDynamicTableSize, int maxHeaderSize, RateControl rateControl)
+    @Deprecated
+    public ServerParser(ByteBufferPool byteBufferPool, int maxTableSize, int maxHeaderSize, RateControl rateControl)
     {
-        super(byteBufferPool, listener, maxDynamicTableSize, maxHeaderSize, rateControl);
-        this.listener = listener;
+        this(byteBufferPool, maxHeaderSize, rateControl);
+    }
+
+    public ServerParser(ByteBufferPool byteBufferPool, int maxHeaderSize, RateControl rateControl)
+    {
+        super(byteBufferPool, maxHeaderSize, rateControl);
+    }
+
+    @Override
+    public void init(Parser.Listener listener)
+    {
+        super.init(listener);
         this.prefaceParser = new PrefaceParser(listener);
+    }
+
+    @Override
+    protected Listener getListener()
+    {
+        return (Listener)super.getListener();
     }
 
     /**
@@ -137,6 +148,7 @@ public class ServerParser extends Parser
 
     private void notifyPreface()
     {
+        Listener listener = getListener();
         try
         {
             listener.onPreface();

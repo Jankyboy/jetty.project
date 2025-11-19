@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -32,7 +27,7 @@ import org.eclipse.jetty.util.StringUtil;
 
 public class InetAccessSet extends AbstractSet<InetAccessSet.PatternTuple> implements Set<InetAccessSet.PatternTuple>, Predicate<InetAccessSet.AccessTuple>
 {
-    private ArrayList<PatternTuple> tuples = new ArrayList<>();
+    private final ArrayList<PatternTuple> tuples = new ArrayList<>();
 
     @Override
     public boolean add(PatternTuple storageTuple)
@@ -72,7 +67,7 @@ public class InetAccessSet extends AbstractSet<InetAccessSet.PatternTuple> imple
         return false;
     }
 
-    static class PatternTuple implements Predicate<AccessTuple>
+    public static class PatternTuple implements Predicate<AccessTuple>
     {
         private final String connector;
         private final InetAddressPattern address;
@@ -115,19 +110,22 @@ public class InetAccessSet extends AbstractSet<InetAccessSet.PatternTuple> imple
             if ((connector != null) && !connector.equals(entry.getConnector()))
                 return false;
 
-            // If we have a path we must must be at this path to match for an address.
+            // If we have a path we must be at this path to match for an address.
             if ((pathSpec != null) && !pathSpec.matches(entry.getPath()))
                 return false;
 
             // Match for InetAddress.
-            if ((address != null) && !address.test(entry.getAddress()))
-                return false;
+            return (address == null) || address.test(entry.getAddress());
+        }
 
-            return true;
+        @Override
+        public String toString()
+        {
+            return String.format("%s@%x{connector=%s, addressPattern=%s, pathSpec=%s}", getClass().getSimpleName(), hashCode(), connector, address, pathSpec);
         }
     }
 
-    static class AccessTuple
+    public static class AccessTuple
     {
         private final String connector;
         private final InetAddress address;

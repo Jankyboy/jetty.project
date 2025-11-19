@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -35,20 +30,32 @@ public class Generator
 
     public Generator(ByteBufferPool byteBufferPool)
     {
-        this(byteBufferPool, 4096, 0);
+        this(byteBufferPool, 0);
     }
 
-    public Generator(ByteBufferPool byteBufferPool, int maxDynamicTableSize, int maxHeaderBlockFragment)
+    @Deprecated
+    public Generator(ByteBufferPool byteBufferPool, int maxTableCapacity, int maxHeaderBlockFragment)
     {
-        this(byteBufferPool, true, maxDynamicTableSize, maxHeaderBlockFragment);
+        this(byteBufferPool, maxHeaderBlockFragment);
     }
 
-    public Generator(ByteBufferPool byteBufferPool, boolean useDirectByteBuffers, int maxDynamicTableSize, int maxHeaderBlockFragment)
+    @Deprecated
+    public Generator(ByteBufferPool byteBufferPool, boolean useDirectByteBuffers, int maxTableCapacity, int maxHeaderBlockFragment)
+    {
+        this(byteBufferPool, useDirectByteBuffers, maxHeaderBlockFragment);
+    }
+
+    public Generator(ByteBufferPool byteBufferPool, int maxHeaderBlockFragment)
+    {
+        this(byteBufferPool, true, maxHeaderBlockFragment);
+    }
+
+    public Generator(ByteBufferPool byteBufferPool, boolean useDirectByteBuffers, int maxHeaderBlockFragment)
     {
         this.byteBufferPool = byteBufferPool;
 
         headerGenerator = new HeaderGenerator(useDirectByteBuffers);
-        hpackEncoder = new HpackEncoder(maxDynamicTableSize);
+        hpackEncoder = new HpackEncoder();
 
         this.generators = new FrameGenerator[FrameType.values().length];
         this.generators[FrameType.HEADERS.getType()] = new HeadersGenerator(headerGenerator, hpackEncoder, maxHeaderBlockFragment);
@@ -71,14 +78,21 @@ public class Generator
         return byteBufferPool;
     }
 
-    public void setValidateHpackEncoding(boolean validateEncoding)
+    public HpackEncoder getHpackEncoder()
     {
-        hpackEncoder.setValidateEncoding(validateEncoding);
+        return hpackEncoder;
     }
 
-    public void setHeaderTableSize(int headerTableSize)
+    @Deprecated
+    public void setValidateHpackEncoding(boolean validateEncoding)
     {
-        hpackEncoder.setRemoteMaxDynamicTableSize(headerTableSize);
+        getHpackEncoder().setValidateEncoding(validateEncoding);
+    }
+
+    @Deprecated
+    public void setHeaderTableSize(int maxTableSize)
+    {
+        getHpackEncoder().setTableCapacity(maxTableSize);
     }
 
     public void setMaxFrameSize(int maxFrameSize)
@@ -96,8 +110,9 @@ public class Generator
         return dataGenerator.generate(lease, frame, maxLength);
     }
 
+    @Deprecated
     public void setMaxHeaderListSize(int value)
     {
-        hpackEncoder.setMaxHeaderListSize(value);
+        getHpackEncoder().setMaxHeaderListSize(value);
     }
 }

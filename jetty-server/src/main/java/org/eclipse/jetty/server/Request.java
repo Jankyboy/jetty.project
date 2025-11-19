@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -27,7 +22,6 @@ import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
@@ -52,6 +46,7 @@ import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
+import javax.servlet.ServletOutputStream;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletRequestAttributeEvent;
 import javax.servlet.ServletRequestAttributeListener;
@@ -66,10 +61,12 @@ import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpUpgradeHandler;
 import javax.servlet.http.Part;
 import javax.servlet.http.PushBuilder;
+import javax.servlet.http.WebConnection;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.ComplianceViolation;
 import org.eclipse.jetty.http.HostPortHttpField;
+import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.HttpCookie;
 import org.eclipse.jetty.http.HttpCookie.SetCookieHttpField;
 import org.eclipse.jetty.http.HttpField;
@@ -83,6 +80,8 @@ import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http.MimeTypes;
+import org.eclipse.jetty.http.UriCompliance;
+import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.RuntimeIOException;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.ContextHandler.Context;
@@ -98,6 +97,8 @@ import org.eclipse.jetty.util.URIUtil;
 import org.eclipse.jetty.util.UrlEncoded;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.eclipse.jetty.http.HttpCompliance.Violation.MISMATCHED_AUTHORITY;
 
 /**
  * Jetty Request.
@@ -204,8 +205,8 @@ public class Request implements HttpServletRequest
     private String _method;
     private String _pathInContext;
     private ServletPathMapping _servletPathMapping;
+    private Object _asyncNotSupportedSource = null;
     private boolean _secure;
-    private String _asyncNotSupportedSource = null;
     private boolean _newContext;
     private boolean _cookiesExtracted = false;
     private boolean _handled = false;
@@ -220,19 +221,19 @@ public class Request implements HttpServletRequest
     private Cookies _cookies;
     private DispatcherType _dispatcherType;
     private int _inputState = INPUT_NONE;
+    private BufferedReader _reader;
+    private String _readerEncoding;
     private MultiMap<String> _queryParameters;
     private MultiMap<String> _contentParameters;
     private MultiMap<String> _parameters;
     private Charset _queryEncoding;
-    private BufferedReader _reader;
-    private String _readerEncoding;
     private InetSocketAddress _remote;
     private String _requestedSessionId;
     private UserIdentity.Scope _scope;
     private HttpSession _session;
     private SessionHandler _sessionHandler;
     private long _timeStamp;
-    private MultiPartFormInputStream _multiParts; //if the request is a multi-part mime
+    private MultiParts _multiParts; //if the request is a multi-part mime
     private AsyncContextState _async;
     private List<Session> _sessions; //list of sessions used during lifetime of request
 
@@ -293,7 +294,7 @@ public class Request implements HttpServletRequest
         return !isPush() && getHttpChannel().getHttpTransport().isPushSupported();
     }
 
-    private static EnumSet<HttpHeader> NOT_PUSHED_HEADERS = EnumSet.of(
+    private static final EnumSet<HttpHeader> NOT_PUSHED_HEADERS = EnumSet.of(
         HttpHeader.IF_MATCH,
         HttpHeader.IF_RANGE,
         HttpHeader.IF_UNMODIFIED_SINCE,
@@ -316,7 +317,7 @@ public class Request implements HttpServletRequest
 
         HttpField authField = getHttpFields().getField(HttpHeader.AUTHORIZATION);
         //TODO check what to do for digest etc etc
-        if (getUserPrincipal() != null && authField.getValue().startsWith("Basic"))
+        if (authField != null && getUserPrincipal() != null && authField.getValue().startsWith("Basic"))
             fields.add(authField);
 
         String id;
@@ -336,7 +337,7 @@ public class Request implements HttpServletRequest
             id = getRequestedSessionId();
         }
 
-        Map<String,String> cookies = new HashMap<>();
+        Map<String, String> cookies = new HashMap<>();
         Cookie[] existingCookies = getCookies();
         if (existingCookies != null)
         {
@@ -354,7 +355,10 @@ public class Request implements HttpServletRequest
             HttpHeader header = field.getHeader();
             if (header == HttpHeader.SET_COOKIE)
             {
-                HttpCookie cookie = ((SetCookieHttpField)field).getHttpCookie();
+                HttpCookie cookie = (field instanceof SetCookieHttpField)
+                    ? ((SetCookieHttpField)field).getHttpCookie()
+                    : new HttpCookie(field.getValue());
+
                 if (cookie.getMaxAge() > 0)
                     cookies.put(cookie.getName(), cookie.getValue());
                 else
@@ -365,7 +369,7 @@ public class Request implements HttpServletRequest
         if (!cookies.isEmpty())
         {
             StringBuilder buff = new StringBuilder();
-            for (Map.Entry<String,String> entry : cookies.entrySet())
+            for (Map.Entry<String, String> entry : cookies.entrySet())
             {
                 if (buff.length() > 0)
                     buff.append("; ");
@@ -414,20 +418,34 @@ public class Request implements HttpServletRequest
     {
         if (LOG.isDebugEnabled())
             LOG.debug("Request {} leaving session {}", this, session);
-        session.getSessionHandler().complete(session);
+        //try and scope to a request and context before leaving the session
+        ServletContext ctx = session.getServletContext();
+        ContextHandler handler = ContextHandler.getContextHandler(ctx);
+        if (handler == null)
+            session.getSessionHandler().complete(session);
+        else
+            handler.handle(this, () ->  session.getSessionHandler().complete(session));
     }
 
     /**
      * A response is being committed for a session,
      * potentially write the session out before the
      * client receives the response.
+     *
      * @param session the session
      */
     private void commitSession(Session session)
     {
         if (LOG.isDebugEnabled())
             LOG.debug("Response {} committing for session {}", this, session);
-        session.getSessionHandler().commit(session);
+        
+        //try and scope to a request and context before committing the session
+        ServletContext ctx = session.getServletContext();
+        ContextHandler handler = ContextHandler.getContextHandler(ctx);
+        if (handler == null)
+            session.getSessionHandler().commit(session);
+        else
+            handler.handle(this, () -> session.getSessionHandler().commit(session));
     }
 
     private MultiMap<String> getParameters()
@@ -449,6 +467,7 @@ public class Request implements HttpServletRequest
                 }
                 catch (IllegalStateException | IllegalArgumentException e)
                 {
+                    LOG.warn(e.toString());
                     throw new BadMessageException("Unable to parse form content", e);
                 }
             }
@@ -749,7 +768,7 @@ public class Request implements HttpServletRequest
 
     public long getContentRead()
     {
-        return _input.getContentConsumed();
+        return _input.getContentReceived();
     }
 
     @Override
@@ -858,7 +877,7 @@ public class Request implements HttpServletRequest
     public long getDateHeader(String name)
     {
         HttpFields fields = _httpFields;
-        return fields == null ? null : fields.getDateField(name);
+        return fields == null ? -1 : fields.getDateField(name);
     }
 
     @Override
@@ -978,63 +997,47 @@ public class Request implements HttpServletRequest
     @Override
     public String getLocalAddr()
     {
-        if (_channel == null)
+        if (_channel != null)
         {
-            try
-            {
-                String name = InetAddress.getLocalHost().getHostAddress();
-                if (StringUtil.ALL_INTERFACES.equals(name))
-                    return null;
-                return HostPort.normalizeHost(name);
-            }
-            catch (UnknownHostException e)
-            {
-                LOG.trace("IGNORED", e);
-                return null;
-            }
+            InetSocketAddress local = _channel.getLocalAddress();
+            if (local == null)
+                return "";
+            InetAddress address = local.getAddress();
+            String result = address == null
+                ? local.getHostString()
+                : address.getHostAddress();
+
+            return formatAddrOrHost(result);
         }
 
-        InetSocketAddress local = _channel.getLocalAddress();
-        if (local == null)
-            return "";
-        InetAddress address = local.getAddress();
-        String result = address == null
-            ? local.getHostString()
-            : address.getHostAddress();
-        return HostPort.normalizeHost(result);
+        return "";
     }
 
+    /*
+     * @see javax.servlet.ServletRequest#getLocalName()
+     */
     @Override
     public String getLocalName()
     {
         if (_channel != null)
         {
-            InetSocketAddress local = _channel.getLocalAddress();
-            if (local != null)
-                return HostPort.normalizeHost(local.getHostString());
+            String localName = _channel.getLocalName();
+            return formatAddrOrHost(localName);
         }
 
-        try
-        {
-            String name = InetAddress.getLocalHost().getHostName();
-            if (StringUtil.ALL_INTERFACES.equals(name))
-                return null;
-            return HostPort.normalizeHost(name);
-        }
-        catch (UnknownHostException e)
-        {
-            LOG.trace("IGNORED", e);
-        }
-        return null;
+        return ""; // not allowed to be null
     }
 
     @Override
     public int getLocalPort()
     {
-        if (_channel == null)
-            return 0;
-        InetSocketAddress local = _channel.getLocalAddress();
-        return local == null ? 0 : local.getPort();
+        if (_channel != null)
+        {
+            int localPort = _channel.getLocalPort();
+            if (localPort > 0)
+                return localPort;
+        }
+        return 0;
     }
 
     @Override
@@ -1067,7 +1070,7 @@ public class Request implements HttpServletRequest
         List<String> vals = getParameters().getValues(name);
         if (vals == null)
             return null;
-        return vals.toArray(new String[vals.size()]);
+        return vals.toArray(new String[0]);
     }
 
     public MultiMap<String> getQueryParameters()
@@ -1161,16 +1164,22 @@ public class Request implements HttpServletRequest
 
         if (_reader == null || !encoding.equalsIgnoreCase(_readerEncoding))
         {
-            final ServletInputStream in = getInputStream();
+            ServletInputStream in = getInputStream();
             _readerEncoding = encoding;
             _reader = new BufferedReader(new InputStreamReader(in, encoding))
             {
                 @Override
                 public void close() throws IOException
                 {
+                    // Do not call super to avoid marking this reader as closed,
+                    // but do close the ServletInputStream that can be reopened.
                     in.close();
                 }
             };
+        }
+        else if (_channel.isExpecting100Continue())
+        {
+            _channel.continue100(_input.available());
         }
         _inputState = INPUT_READER;
         return _reader;
@@ -1211,12 +1220,10 @@ public class Request implements HttpServletRequest
 
         InetAddress address = remote.getAddress();
         String result = address == null
-            ? remote.getHostString()
-            : address.getHostAddress();
-        // Add IPv6 brackets if necessary, to be consistent
-        // with cases where _remote has been built from other
-        // sources such as forward headers or PROXY protocol.
-        return HostPort.normalizeHost(result);
+                ? remote.getHostString()
+                : address.getHostAddress();
+
+        return formatAddrOrHost(result);
     }
 
     @Override
@@ -1227,8 +1234,9 @@ public class Request implements HttpServletRequest
             remote = _channel.getRemoteAddress();
         if (remote == null)
             return "";
+
         // We want the URI host, so add IPv6 brackets if necessary.
-        return HostPort.normalizeHost(remote.getHostString());
+        return formatAddrOrHost(remote.getHostString());
     }
 
     @Override
@@ -1252,10 +1260,6 @@ public class Request implements HttpServletRequest
     @Override
     public RequestDispatcher getRequestDispatcher(String path)
     {
-        // path is encoded, potentially with query
-
-        path = URIUtil.compactPath(path);
-
         if (path == null || _context == null)
             return null;
 
@@ -1291,7 +1295,9 @@ public class Request implements HttpServletRequest
     {
         final StringBuffer url = new StringBuffer(128);
         URIUtil.appendSchemeHostPort(url, getScheme(), getServerName(), getServerPort());
-        url.append(getRequestURI());
+        String path = getRequestURI();
+        if (path != null)
+            url.append(path);
         return url;
     }
 
@@ -1326,32 +1332,38 @@ public class Request implements HttpServletRequest
     @Override
     public String getServerName()
     {
-        return _uri == null ? findServerName() : _uri.getHost();
+        if ((_uri != null) && StringUtil.isNotBlank(_uri.getAuthority()))
+            return formatAddrOrHost(_uri.getHost());
+        else
+            return findServerName();
     }
 
     private String findServerName()
     {
+        if (_channel != null)
+        {
+            HostPort serverAuthority = _channel.getServerAuthority();
+            if (serverAuthority != null)
+                return formatAddrOrHost(serverAuthority.getHost());
+        }
+
         // Return host from connection
         String name = getLocalName();
         if (name != null)
-            return HostPort.normalizeHost(name);
+            return formatAddrOrHost(name);
 
-        // Return the local host
-        try
-        {
-            return HostPort.normalizeHost(InetAddress.getLocalHost().getHostAddress());
-        }
-        catch (UnknownHostException e)
-        {
-            LOG.trace("IGNORED", e);
-        }
-        return null;
+        return ""; // not allowed to be null
     }
 
     @Override
     public int getServerPort()
     {
-        int port = _uri == null ? -1 : _uri.getPort();
+        int port = -1;
+
+        if ((_uri != null) && StringUtil.isNotBlank(_uri.getAuthority()))
+            port = _uri.getPort();
+        else
+            port = findServerPort();
 
         // If no port specified, return the default port for the scheme
         if (port <= 0)
@@ -1363,11 +1375,15 @@ public class Request implements HttpServletRequest
 
     private int findServerPort()
     {
-        // Return host from connection
         if (_channel != null)
-            return getLocalPort();
+        {
+            HostPort serverAuthority = _channel.getServerAuthority();
+            if (serverAuthority != null)
+                return serverAuthority.getPort();
+        }
 
-        return -1;
+        // Return host from connection
+        return getLocalPort();
     }
 
     @Override
@@ -1425,6 +1441,31 @@ public class Request implements HttpServletRequest
      */
     public void onCompleted()
     {
+        HttpChannel httpChannel = getHttpChannel();
+        // httpChannel can be null in some scenarios
+        // it's not possible to use requestlog in those scenarios anyway.
+        if (httpChannel != null)
+        {
+            RequestLog requestLog = httpChannel.getRequestLog();
+            if (requestLog != null)
+            {
+                // Don't allow pulling more parameters from request body content
+                _contentParamsExtracted = true;
+                if (_contentParameters == null)
+                    _contentParameters = NO_PARAMS;
+
+                // Reset the status code to what was committed
+                MetaData.Response committedResponse = getResponse().getCommittedMetaData();
+                if (committedResponse != null)
+                {
+                    getResponse().setStatus(committedResponse.getStatus());
+                    // TODO: Reset the response headers to what they were when committed
+                }
+
+                requestLog.log(this, getResponse());
+            }
+        }
+
         if (_sessions != null)
         {
             for (Session s:_sessions)
@@ -1436,7 +1477,7 @@ public class Request implements HttpServletRequest
         {
             try
             {
-                _multiParts.deleteParts();
+                _multiParts.close();
             }
             catch (Throwable e)
             {
@@ -1454,7 +1495,9 @@ public class Request implements HttpServletRequest
         if (_sessions != null)
         {
             for (Session s:_sessions)
+            {
                 commitSession(s);
+            }
         }
     }
 
@@ -1512,6 +1555,9 @@ public class Request implements HttpServletRequest
             throw new IllegalStateException("No SessionManager");
 
         _session = _sessionHandler.newHttpSession(this);
+        if (_session == null)
+            throw new IllegalStateException("Create session failed");
+
         HttpCookie cookie = _sessionHandler.getSessionCookie(_session, getContextPath(), isSecure());
         if (cookie != null)
             _channel.getResponse().replaceCookie(cookie);
@@ -1663,6 +1709,16 @@ public class Request implements HttpServletRequest
         _secure = secure;
     }
 
+    /**
+     * <p>Get the nanoTime at which the request arrived to a connector, obtained via {@link System#nanoTime()}.
+     * This method can be used when measuring latencies.</p>
+     * @return The nanoTime at which the request was received/created in nanoseconds
+     */
+    public long getBeginNanoTime()
+    {
+        return _metaData.getBeginNanoTime();
+    }
+
     @Override
     public boolean isUserInRole(String role)
     {
@@ -1679,34 +1735,63 @@ public class Request implements HttpServletRequest
      */
     public void setMetaData(MetaData.Request request)
     {
+        if (_metaData == null && _input != null && _channel != null)
+        {
+            _input.reopen();
+            _channel.getResponse().getHttpOutput().reopen();
+        }
         _metaData = request;
         _method = request.getMethod();
         _httpFields = request.getFields();
         final HttpURI uri = request.getURI();
+        UriCompliance compliance = null;
+        if (uri.hasViolations())
+        {
+            compliance = _channel == null || _channel.getHttpConfiguration() == null ? null : _channel.getHttpConfiguration().getUriCompliance();
+            String badMessage = UriCompliance.checkUriCompliance(compliance, uri);
+            if (badMessage != null)
+                throw new BadMessageException(badMessage);
+        }
 
+        HttpField host = getHttpFields().getField(HttpHeader.HOST);
         if (uri.isAbsolute() && uri.hasAuthority() && uri.getPath() != null)
+        {
             _uri = uri;
+            if (host instanceof HostPortHttpField && !((HostPortHttpField)host).getHostPort().toString().equals(uri.getAuthority()))
+            {
+                HttpChannel httpChannel = getHttpChannel();
+                HttpConfiguration httpConfiguration = httpChannel.getHttpConfiguration();
+                if (httpConfiguration != null)
+                {
+                    HttpCompliance httpCompliance = httpConfiguration.getHttpCompliance();
+                    if (httpCompliance.allows(MISMATCHED_AUTHORITY))
+                    {
+                        if (httpChannel instanceof ComplianceViolation.Listener)
+                            ((ComplianceViolation.Listener)httpChannel).onComplianceViolation(httpCompliance, MISMATCHED_AUTHORITY, _uri.toString());
+                    }
+                    else
+                    {
+                        throw new BadMessageException(400, "Mismatched Authority");
+                    }
+                }
+            }
+        }
         else
         {
             HttpURI.Mutable builder = HttpURI.build(uri);
 
-            if (uri.isAbsolute())
-            {
-                if (uri.getPath() == null)
-                    builder.path("/");
-                setSecure(HttpScheme.HTTPS.is(uri.getScheme()));
-            }
-            else
-            {
+            if (!uri.isAbsolute())
                 builder.scheme(HttpScheme.HTTP.asString());
-            }
+
+            if (uri.getPath() == null)
+                builder.path("/");
 
             if (!uri.hasAuthority())
             {
-                HttpField field = getHttpFields().getField(HttpHeader.HOST);
-                if (field instanceof HostPortHttpField)
+                if (host instanceof HostPortHttpField)
                 {
-                    HostPortHttpField authority = (HostPortHttpField)field;
+                    HostPortHttpField authority = (HostPortHttpField)host;
+
                     builder.host(authority.getHost()).port(authority.getPort());
                 }
                 else
@@ -1716,6 +1801,7 @@ public class Request implements HttpServletRequest
             }
             _uri = builder.asImmutable();
         }
+        setSecure(HttpScheme.HTTPS.is(_uri.getScheme()));
 
         String encoded = _uri.getPath();
         String path;
@@ -1723,11 +1809,17 @@ public class Request implements HttpServletRequest
             // TODO this is not really right for CONNECT
             path = _uri.isAbsolute() ? "/" : null;
         else if (encoded.startsWith("/"))
-            path = (encoded.length() == 1) ? "/" : URIUtil.canonicalPath(_uri.getDecodedPath());
+        {
+            path = (encoded.length() == 1) ? "/" : _uri.getDecodedPath();
+        }
         else if ("*".equals(encoded) || HttpMethod.CONNECT.is(getMethod()))
+        {
             path = encoded;
+        }
         else
+        {
             path = null;
+        }
 
         if (path == null || path.isEmpty())
         {
@@ -1749,16 +1841,9 @@ public class Request implements HttpServletRequest
 
     protected void recycle()
     {
-        _metaData = null;
-        _httpFields = null;
-        _trailers = null;
-        _method = null;
-        _uri = null;
-
         if (_context != null)
             throw new IllegalStateException("Request in context!");
-
-        if (_inputState == INPUT_READER)
+        if (_reader != null && _inputState == INPUT_READER)
         {
             try
             {
@@ -1772,17 +1857,27 @@ public class Request implements HttpServletRequest
             {
                 LOG.trace("IGNORED", e);
                 _reader = null;
+                _readerEncoding = null;
             }
         }
 
-        _dispatcherType = null;
-        setAuthentication(Authentication.NOT_CHECKED);
         getHttpChannelState().recycle();
-        if (_async != null)
-            _async.reset();
-        _async = null;
+        _requestAttributeListeners.clear();
+        _input.recycle();
+        _metaData = null;
+        _httpFields = null;
+        _trailers = null;
+        _uri = null;
+        _method = null;
+        _pathInContext = null;
+        _servletPathMapping = null;
         _asyncNotSupportedSource = null;
+        _secure = false;
+        _newContext = false;
+        _cookiesExtracted = false;
         _handled = false;
+        _contentParamsExtracted = false;
+        _requestedSessionIdFromCookie = false;
         _attributes = Attributes.unwrap(_attributes);
         if (_attributes != null)
         {
@@ -1791,32 +1886,32 @@ public class Request implements HttpServletRequest
             else
                 _attributes = null;
         }
+        setAuthentication(Authentication.NOT_CHECKED);
         _contentType = null;
         _characterEncoding = null;
-        _pathInContext = null;
+        _context = null;
+        _errorContext = null;
         if (_cookies != null)
             _cookies.reset();
-        _cookiesExtracted = false;
-        _context = null;
-        _newContext = false;
-        _queryEncoding = null;
-        _requestedSessionId = null;
-        _requestedSessionIdFromCookie = false;
-        _secure = false;
-        _session = null;
-        _sessionHandler = null;
-        _scope = null;
-        _timeStamp = 0;
+        _dispatcherType = null;
+        _inputState = INPUT_NONE;
+        // _reader can be reused
+        // _readerEncoding can be reused
         _queryParameters = null;
         _contentParameters = null;
         _parameters = null;
-        _contentParamsExtracted = false;
-        _inputState = INPUT_NONE;
-        _multiParts = null;
+        _queryEncoding = null;
         _remote = null;
+        _requestedSessionId = null;
+        _scope = null;
+        _session = null;
+        _sessionHandler = null;
+        _timeStamp = 0;
+        _multiParts = null;
+        if (_async != null)
+            _async.reset();
+        _async = null;
         _sessions = null;
-        _input.recycle();
-        _requestAttributeListeners.clear();
     }
 
     @Override
@@ -1842,7 +1937,7 @@ public class Request implements HttpServletRequest
         _requestAttributeListeners.remove(listener);
     }
 
-    public void setAsyncSupported(boolean supported, String source)
+    public void setAsyncSupported(boolean supported, Object source)
     {
         _asyncNotSupportedSource = supported ? null : (source == null ? "unknown" : source);
     }
@@ -2076,7 +2171,7 @@ public class Request implements HttpServletRequest
      * Set the character encoding used for the query string. This call will effect the return of getQueryString and getParamaters. It must be called before any
      * getParameter methods.
      *
-     * The request attribute "org.eclipse.jetty.server.server.Request.queryEncoding" may be set as an alternate method of calling setQueryEncoding.
+     * The request attribute "org.eclipse.jetty.server.Request.queryEncoding" may be set as an alternate method of calling setQueryEncoding.
      *
      * @param queryEncoding the URI query character encoding
      */
@@ -2140,6 +2235,11 @@ public class Request implements HttpServletRequest
     {
         if (_asyncNotSupportedSource != null)
             throw new IllegalStateException("!asyncSupported: " + _asyncNotSupportedSource);
+        return forceStartAsync();
+    }
+
+    private AsyncContextState forceStartAsync()
+    {
         HttpChannelState state = getHttpChannelState();
         if (_async == null)
             _async = new AsyncContextState(state);
@@ -2236,7 +2336,21 @@ public class Request implements HttpServletRequest
             if (config == null)
                 throw new IllegalStateException("No multipart config for servlet");
 
-            _multiParts = newMultiParts(config);
+            int maxFormContentSize = ContextHandler.DEFAULT_MAX_FORM_CONTENT_SIZE;
+            int maxFormKeys = ContextHandler.DEFAULT_MAX_FORM_KEYS;
+            if (_context != null)
+            {
+                ContextHandler contextHandler = _context.getContextHandler();
+                maxFormContentSize = contextHandler.getMaxFormContentSize();
+                maxFormKeys = contextHandler.getMaxFormKeys();
+            }
+            else
+            {
+                maxFormContentSize = lookupServerAttribute(ContextHandler.MAX_FORM_CONTENT_SIZE_KEY, maxFormContentSize);
+                maxFormKeys = lookupServerAttribute(ContextHandler.MAX_FORM_KEYS_KEY, maxFormKeys);
+            }
+
+            _multiParts = newMultiParts(config, maxFormKeys);
             Collection<Part> parts = _multiParts.getParts();
 
             String formCharset = null;
@@ -2247,7 +2361,7 @@ public class Request implements HttpServletRequest
                 {
                     ByteArrayOutputStream os = new ByteArrayOutputStream();
                     IO.copy(is, os);
-                    formCharset = new String(os.toByteArray(), StandardCharsets.UTF_8);
+                    formCharset = os.toString(StandardCharsets.UTF_8);
                 }
             }
 
@@ -2269,11 +2383,16 @@ public class Request implements HttpServletRequest
             else
                 defaultCharset = StandardCharsets.UTF_8;
 
+            long formContentSize = 0;
             ByteArrayOutputStream os = null;
             for (Part p : parts)
             {
                 if (p.getSubmittedFileName() == null)
                 {
+                    formContentSize = Math.addExact(formContentSize, p.getSize());
+                    if (maxFormContentSize >= 0 && formContentSize > maxFormContentSize)
+                        throw new IllegalStateException("Form is larger than max length " + maxFormContentSize);
+
                     // Servlet Spec 3.0 pg 23, parts without filename must be put into params.
                     String charset = null;
                     if (p.getContentType() != null)
@@ -2285,7 +2404,7 @@ public class Request implements HttpServletRequest
                             os = new ByteArrayOutputStream();
                         IO.copy(is, os);
 
-                        String content = new String(os.toByteArray(), charset == null ? defaultCharset : Charset.forName(charset));
+                        String content = os.toString(charset == null ? defaultCharset : Charset.forName(charset));
                         if (_contentParameters == null)
                             _contentParameters = params == null ? new MultiMap<>() : params;
                         _contentParameters.add(p.getName(), content);
@@ -2298,10 +2417,23 @@ public class Request implements HttpServletRequest
         return _multiParts.getParts();
     }
 
-    private MultiPartFormInputStream newMultiParts(MultipartConfigElement config) throws IOException
+    private MultiParts newMultiParts(MultipartConfigElement config, int maxParts) throws IOException
     {
-        return new MultiPartFormInputStream(getInputStream(), getContentType(), config,
-            (_context != null ? (File)_context.getAttribute("javax.servlet.context.tempdir") : null));
+        MultiPartFormDataCompliance compliance = getHttpChannel().getHttpConfiguration().getMultipartFormDataCompliance();
+        if (LOG.isDebugEnabled())
+            LOG.debug("newMultiParts {} {}", compliance, this);
+
+        switch (compliance)
+        {
+            case RFC7578:
+                return new MultiParts.MultiPartsHttpParser(getInputStream(), getContentType(), config,
+                    (_context != null ? (File)_context.getAttribute("javax.servlet.context.tempdir") : null), this, maxParts);
+
+            case LEGACY:
+            default:
+                return new MultiParts.MultiPartsUtilParser(getInputStream(), getContentType(), config,
+                    (_context != null ? (File)_context.getAttribute("javax.servlet.context.tempdir") : null), this, maxParts);
+        }
     }
 
     @Override
@@ -2372,7 +2504,95 @@ public class Request implements HttpServletRequest
     @Override
     public <T extends HttpUpgradeHandler> T upgrade(Class<T> handlerClass) throws IOException, ServletException
     {
-        throw new ServletException("HttpServletRequest.upgrade() not supported in Jetty");
+        Response response = _channel.getResponse();
+        if (response.getStatus() != HttpStatus.SWITCHING_PROTOCOLS_101)
+            throw new IllegalStateException("Response status should be 101");
+        if (response.getHeader("Upgrade") == null)
+            throw new IllegalStateException("Missing Upgrade header");
+        if (!"Upgrade".equalsIgnoreCase(response.getHeader("Connection")))
+            throw new IllegalStateException("Invalid Connection header");
+        if (response.isCommitted())
+            throw new IllegalStateException("Cannot upgrade committed response");
+        if (_metaData == null || _metaData.getHttpVersion() != HttpVersion.HTTP_1_1)
+            throw new IllegalStateException("Only requests over HTTP/1.1 can be upgraded");
+
+        ServletOutputStream outputStream = response.getOutputStream();
+        ServletInputStream inputStream = getInputStream();
+        HttpChannelOverHttp httpChannel11 = (HttpChannelOverHttp)_channel;
+        HttpConnection httpConnection = (HttpConnection)_channel.getConnection();
+
+        T upgradeHandler;
+        try
+        {
+            upgradeHandler = handlerClass.getDeclaredConstructor().newInstance();
+        }
+        catch (Exception e)
+        {
+            throw new ServletException("Unable to instantiate handler class", e);
+        }
+
+        httpChannel11.servletUpgrade(); // tell the HTTP 1.1 channel that it is now handling an upgraded servlet
+        AsyncContext asyncContext = forceStartAsync(); // force the servlet in async mode
+
+        outputStream.flush(); // commit the 101 response
+        httpConnection.getGenerator().servletUpgrade(); // tell the generator it can send data as-is
+        httpConnection.addEventListener(new Connection.Listener()
+        {
+            @Override
+            public void onClosed(Connection connection)
+            {
+                try
+                {
+                    asyncContext.complete();
+                }
+                catch (Exception e)
+                {
+                    LOG.warn("error during upgrade AsyncContext complete", e);
+                }
+                try
+                {
+                    upgradeHandler.destroy();
+                }
+                catch (Exception e)
+                {
+                    LOG.warn("error during upgrade HttpUpgradeHandler destroy", e);
+                }
+            }
+
+            @Override
+            public void onOpened(Connection connection)
+            {
+            }
+        });
+
+        upgradeHandler.init(new WebConnection()
+        {
+            @Override
+            public void close() throws Exception
+            {
+                try
+                {
+                    inputStream.close();
+                }
+                finally
+                {
+                    outputStream.close();
+                }
+            }
+
+            @Override
+            public ServletInputStream getInputStream()
+            {
+                return inputStream;
+            }
+
+            @Override
+            public ServletOutputStream getOutputStream()
+            {
+                return outputStream;
+            }
+        });
+        return upgradeHandler;
     }
 
     /**
@@ -2416,9 +2636,22 @@ public class Request implements HttpServletRequest
     @Override
     public HttpServletMapping getHttpServletMapping()
     {
+        // TODO This is to pass the current TCK.  This has been challenged in https://github.com/eclipse-ee4j/jakartaee-tck/issues/585
+        if (_dispatcherType == DispatcherType.ASYNC)
+        {
+            ServletPathMapping async = (ServletPathMapping)getAttribute(AsyncContext.ASYNC_MAPPING);
+            if (async != null && "/DispatchServlet".equals(async.getServletPath()))
+                return async;
+        }
+
         // The mapping returned is normally for the current servlet.  Except during an
         // INCLUDE dispatch, in which case this method returns the mapping of the source servlet,
         // which we recover from the IncludeAttributes wrapper.
         return findServletPathMapping();
+    }
+
+    private String formatAddrOrHost(String name)
+    {
+        return _channel == null ? HostPort.normalizeHost(name) : _channel.formatAddrOrHost(name);
     }
 }

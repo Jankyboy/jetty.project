@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -64,13 +59,13 @@ import org.eclipse.jetty.util.resource.Resource;
  * Note that the same java compiler will be used as for on-the-fly compiled
  * jsps, which will be the Eclipse java compiler.
  * <p>
- * See <a
- * href="https://www.eclipse.org/jetty/documentation/current/jetty-jspc-maven-plugin.html">Usage
- * Guide</a> for instructions on using this plugin.
+ * See <a href="https://jetty.org/docs/">Usage Guide</a> for
+ * instructions on using this plugin.
  * </p>
  * Runs jspc compiler to produce .java and .class files
  */
-@Mojo(name = "jspc", defaultPhase = LifecyclePhase.PROCESS_CLASSES, requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
+@Mojo(name = "jspc", defaultPhase = LifecyclePhase.PROCESS_CLASSES, requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME,
+    threadSafe = true)
 public class JspcMojo extends AbstractMojo
 {
     public static final String END_OF_WEBAPP = "</web-app>";
@@ -88,6 +83,7 @@ public class JspcMojo extends AbstractMojo
     {
 
         private boolean scanAll;
+        private boolean scanManifest;
 
         public void setClassLoader(ClassLoader loader)
         {
@@ -104,6 +100,16 @@ public class JspcMojo extends AbstractMojo
             return this.scanAll;
         }
 
+        public void setScanManifest(boolean scanManifest)
+        {
+            this.scanManifest = scanManifest;
+        }
+
+        public boolean getScanManifest()
+        {
+            return this.scanManifest;
+        }
+
         @Override
         protected TldScanner newTldScanner(JspCServletContext context, boolean namespaceAware, boolean validate, boolean blockExternal)
         {
@@ -111,6 +117,7 @@ public class JspcMojo extends AbstractMojo
             {
                 StandardJarScanner jarScanner = new StandardJarScanner();
                 jarScanner.setScanAllDirectories(getScanAllDirectories());
+                jarScanner.setScanManifest(getScanManifest());
                 context.setAttribute(JarScanner.class.getName(), jarScanner);
             }
 
@@ -248,6 +255,13 @@ public class JspcMojo extends AbstractMojo
     @Parameter(defaultValue = "true")
     private boolean scanAllDirectories;
 
+    /**
+     * Determines if the manifest of JAR files found on the classpath should be scanned.
+     * True by default.
+     */
+    @Parameter(defaultValue = "true")
+    private boolean scanManifest;
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException
     {
@@ -258,7 +272,7 @@ public class JspcMojo extends AbstractMojo
             getLog().info("generatedClasses=" + generatedClasses);
             getLog().info("webXmlFragment=" + webXmlFragment);
             getLog().info("webXml=" + webXml);
-            getLog().info("insertionMarker=" + (insertionMarker == null || insertionMarker.equals("") ? END_OF_WEBAPP : insertionMarker));
+            getLog().info("insertionMarker=" + (insertionMarker == null || insertionMarker.isEmpty() ? END_OF_WEBAPP : insertionMarker));
             getLog().info("keepSources=" + keepSources);
             getLog().info("mergeFragment=" + mergeFragment);
             if (sourceVersion != null)
@@ -324,6 +338,7 @@ public class JspcMojo extends AbstractMojo
         jspc.setOutputDir(generatedClasses);
         jspc.setClassLoader(fakeWebAppClassLoader);
         jspc.setScanAllDirectories(scanAllDirectories);
+        jspc.setScanManifest(scanManifest);
         jspc.setCompile(true);
         if (sourceVersion != null)
             jspc.setCompilerSourceVM(sourceVersion);
@@ -336,7 +351,7 @@ public class JspcMojo extends AbstractMojo
 
         try
         {
-            if (jspFiles == null | jspFiles.equals(""))
+            if (jspFiles == null | jspFiles.isEmpty())
             {
                 getLog().info("No files selected to precompile");
             }
@@ -441,7 +456,7 @@ public class JspcMojo extends AbstractMojo
                     // marker
                     boolean atInsertPoint = false;
                     boolean atEOF = false;
-                    String marker = (insertionMarker == null || insertionMarker.equals("") ? END_OF_WEBAPP : insertionMarker);
+                    String marker = (insertionMarker == null || insertionMarker.isEmpty() ? END_OF_WEBAPP : insertionMarker);
                     while (!atInsertPoint && !atEOF)
                     {
                         String line = webXmlReader.readLine();

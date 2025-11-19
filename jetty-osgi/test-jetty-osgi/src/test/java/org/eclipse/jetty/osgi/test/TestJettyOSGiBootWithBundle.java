@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,6 +16,7 @@ package org.eclipse.jetty.osgi.test;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import javax.inject.Inject;
@@ -35,8 +31,8 @@ import org.ops4j.pax.exam.Configuration;
 import org.ops4j.pax.exam.CoreOptions;
 import org.ops4j.pax.exam.Option;
 import org.ops4j.pax.exam.junit.PaxExam;
-import org.ops4j.pax.tinybundles.core.TinyBundle;
-import org.ops4j.pax.tinybundles.core.TinyBundles;
+import org.ops4j.pax.tinybundles.TinyBundle;
+import org.ops4j.pax.tinybundles.TinyBundles;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
 
@@ -63,23 +59,23 @@ public class TestJettyOSGiBootWithBundle
     @Configuration
     public static Option[] configure() throws IOException
     {
-        ArrayList<Option> options = new ArrayList<>();
-        
-        options.addAll(TestOSGiUtil.configurePaxExamLogging());
+
+        ArrayList<Option> options = new ArrayList<>(TestOSGiUtil.configurePaxExamLogging());
         
         options.add(CoreOptions.junitBundles());
         options.addAll(configureJettyHomeAndPort());
         options.add(CoreOptions.bootDelegationPackages("org.xml.sax", "org.xml.*", "org.w3c.*", "javax.xml.*"));
-        options.addAll(TestOSGiUtil.coreJettyDependencies());
+        TestOSGiUtil.coreJettyDependencies(options);
+        TestOSGiUtil.coreJspDependencies(options);
         options.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("jetty-alpn-java-client").versionAsInProject().start());
         options.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("jetty-alpn-client").versionAsInProject().start());
 
         TinyBundle bundle = TinyBundles.bundle();
-        bundle.add(SomeCustomBean.class);
-        bundle.set(Constants.BUNDLE_SYMBOLICNAME, TEST_JETTY_HOME_BUNDLE);
+        bundle.addClass(SomeCustomBean.class);
+        bundle.setHeader(Constants.BUNDLE_SYMBOLICNAME, TEST_JETTY_HOME_BUNDLE);
         File etcFolder = new File("src/test/config/etc");
-        bundle.add("jettyhome/etc/jetty-http-boot-with-bundle.xml", new FileInputStream(new File(etcFolder, "jetty-http-boot-with-bundle.xml")));
-        bundle.add("jettyhome/etc/jetty-with-custom-class.xml", new FileInputStream(new File(etcFolder, "jetty-with-custom-class.xml")));
+        bundle.addResource("jettyhome/etc/jetty-http-boot-with-bundle.xml", Files.newInputStream(new File(etcFolder, "jetty-http-boot-with-bundle.xml").toPath()));
+        bundle.addResource("jettyhome/etc/jetty-with-custom-class.xml", Files.newInputStream(new File(etcFolder, "jetty-with-custom-class.xml").toPath()));
         options.add(CoreOptions.streamBundle(bundle.build()).startLevel(1));
         return options.toArray(new Option[0]);
     }
@@ -107,7 +103,7 @@ public class TestJettyOSGiBootWithBundle
             client.start();
             String tmp = System.getProperty("boot.bundle.port");
             assertNotNull(tmp);
-            int port = Integer.valueOf(tmp.trim());
+            int port = Integer.parseInt(tmp.trim());
             ContentResponse response = client.GET("http://127.0.0.1:" + port);
             assertEquals(HttpStatus.NOT_FOUND_404, response.getStatus());
             String content = new String(response.getContent());

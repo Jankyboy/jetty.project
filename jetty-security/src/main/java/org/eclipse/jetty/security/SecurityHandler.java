@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -73,7 +68,8 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
     private final Map<String, String> _initParameters = new HashMap<>();
     private LoginService _loginService;
     private IdentityService _identityService;
-    private boolean _renewSession = true;
+    private boolean _renewSessionOnAuthentication = true;
+    private int _sessionMaxInactiveIntervalOnAuthentication = 0;
 
     static
     {
@@ -298,9 +294,6 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
         return getServer().getBean(IdentityService.class);
     }
 
-    /**
-     *
-     */
     @Override
     protected void doStart()
         throws Exception
@@ -339,11 +332,8 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
 
             if (_identityService == null)
             {
-                if (_realmName != null)
-                {
-                    setIdentityService(new DefaultIdentityService());
-                    manage(_identityService);
-                }
+                setIdentityService(new DefaultIdentityService());
+                manage(_identityService);
             }
             else
                 unmanage(_identityService);
@@ -357,7 +347,7 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
                 throw new IllegalStateException("LoginService has different IdentityService to " + this);
         }
 
-        if (_authenticator == null && _identityService != null)
+        if (_authenticator == null)
         {
             // If someone has set an authenticator factory only use that, otherwise try the list of discovered factories.
             if (_authenticatorFactory != null)
@@ -404,7 +394,6 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
     }
 
     @Override
-
     protected void doStop() throws Exception
     {
         //if we discovered the services (rather than had them explicitly configured), remove them.
@@ -445,7 +434,7 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
     @Override
     public boolean isSessionRenewedOnAuthentication()
     {
-        return _renewSession;
+        return _renewSessionOnAuthentication;
     }
 
     /**
@@ -458,7 +447,26 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
      */
     public void setSessionRenewedOnAuthentication(boolean renew)
     {
-        _renewSession = renew;
+        _renewSessionOnAuthentication = renew;
+    }
+
+    @Override
+    public int getSessionMaxInactiveIntervalOnAuthentication()
+    {
+        return _sessionMaxInactiveIntervalOnAuthentication;
+    }
+
+    /**
+     * Set the interval in seconds, which if non-zero, will be set with
+     * {@link javax.servlet.http.HttpSession#setMaxInactiveInterval(int)}
+     * when a session is newly authenticated.
+     * @param seconds An interval in seconds; or 0 to not set the interval
+     *                on authentication; or a negative number to make the
+     *                session never timeout after authentication.
+     */
+    public void setSessionMaxInactiveIntervalOnAuthentication(int seconds)
+    {
+        _sessionMaxInactiveIntervalOnAuthentication = seconds;
     }
 
     /*
@@ -576,6 +584,11 @@ public abstract class SecurityHandler extends HandlerWrapper implements Authenti
                         else
                             authenticator.secureResponse(request, response, isAuthMandatory, null);
                     }
+                }
+                else if (isAuthMandatory)
+                {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "unauthenticated");
+                    baseRequest.setHandled(true);
                 }
                 else
                 {

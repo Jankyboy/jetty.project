@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -38,7 +33,7 @@ public class HpackEncoderTest
     @Test
     public void testUnknownFieldsContextManagement() throws Exception
     {
-        HpackEncoder encoder = new HpackEncoder(38 * 5);
+        HpackEncoder encoder = newHpackEncoder(38 * 5);
         HttpFields.Mutable fields = HttpFields.build();
 
         HttpField[] field =
@@ -149,8 +144,9 @@ public class HpackEncoderTest
     @Test
     public void testLargeFieldsNotIndexed()
     {
-        HpackEncoder encoder = new HpackEncoder(38 * 5);
+        HpackEncoder encoder = newHpackEncoder(38 * 5);
         HpackContext ctx = encoder.getHpackContext();
+        ctx.resize(encoder.getMaxTableCapacity());
 
         ByteBuffer buffer = BufferUtil.allocate(4096);
 
@@ -175,8 +171,9 @@ public class HpackEncoderTest
     @Test
     public void testIndexContentLength()
     {
-        HpackEncoder encoder = new HpackEncoder(38 * 5);
+        HpackEncoder encoder = newHpackEncoder(38 * 5);
         HpackContext ctx = encoder.getHpackContext();
+        ctx.resize(encoder.getMaxTableCapacity());
 
         ByteBuffer buffer = BufferUtil.allocate(4096);
 
@@ -197,7 +194,7 @@ public class HpackEncoderTest
     @Test
     public void testNeverIndexSetCookie() throws Exception
     {
-        HpackEncoder encoder = new HpackEncoder(38 * 5);
+        HpackEncoder encoder = newHpackEncoder(38 * 5);
         ByteBuffer buffer = BufferUtil.allocate(4096);
 
         HttpFields.Mutable fields = HttpFields.build()
@@ -231,20 +228,20 @@ public class HpackEncoderTest
     {
         HttpFields.Mutable fields = HttpFields.build();
 
-        HpackEncoder encoder = new HpackEncoder(128);
+        HpackEncoder encoder = newHpackEncoder(128);
         ByteBuffer buffer0 = BufferUtil.allocate(4096);
         int pos = BufferUtil.flipToFill(buffer0);
         encoder.encode(buffer0, new MetaData(HttpVersion.HTTP_2, fields));
         BufferUtil.flipToFlush(buffer0, pos);
 
-        encoder = new HpackEncoder(128);
+        encoder = newHpackEncoder(128);
         fields.add(new HttpField("user-agent", "jetty/test"));
         ByteBuffer buffer1 = BufferUtil.allocate(4096);
         pos = BufferUtil.flipToFill(buffer1);
         encoder.encode(buffer1, new MetaData(HttpVersion.HTTP_2, fields));
         BufferUtil.flipToFlush(buffer1, pos);
 
-        encoder = new HpackEncoder(128);
+        encoder = newHpackEncoder(128);
         encoder.setValidateEncoding(false);
         fields.add(new HttpField(":path",
             "This is a very large field, whose size is larger than the dynamic table so it should not be indexed as it will not fit in the table ever!" +
@@ -256,7 +253,7 @@ public class HpackEncoderTest
         encoder.encode(buffer2, new MetaData(HttpVersion.HTTP_2, fields));
         BufferUtil.flipToFlush(buffer2, pos);
 
-        encoder = new HpackEncoder(128);
+        encoder = newHpackEncoder(128);
         encoder.setValidateEncoding(false);
         fields.add(new HttpField("host", "somehost"));
         ByteBuffer buffer = BufferUtil.allocate(4096);
@@ -297,12 +294,12 @@ public class HpackEncoderTest
             .add("host", "localhost0")
             .add("cookie", "abcdefghij");
 
-        HpackEncoder encoder = new HpackEncoder(4096);
+        HpackEncoder encoder = newHpackEncoder(4096);
 
         ByteBuffer buffer = BufferUtil.allocate(4096);
         int pos = BufferUtil.flipToFill(buffer);
         encoder.encodeMaxDynamicTableSize(buffer, 0);
-        encoder.setRemoteMaxDynamicTableSize(50);
+        encoder.setTableCapacity(50);
         encoder.encode(buffer, new MetaData(HttpVersion.HTTP_2, fields));
         BufferUtil.flipToFlush(buffer, pos);
 
@@ -310,5 +307,13 @@ public class HpackEncoderTest
 
         assertThat(context.getMaxDynamicTableSize(), Matchers.is(50));
         assertThat(context.size(), Matchers.is(1));
+    }
+
+    private static HpackEncoder newHpackEncoder(int tableCapacity)
+    {
+        HpackEncoder encoder = new HpackEncoder();
+        encoder.setMaxTableCapacity(tableCapacity);
+        encoder.setTableCapacity(tableCapacity);
+        return encoder;
     }
 }

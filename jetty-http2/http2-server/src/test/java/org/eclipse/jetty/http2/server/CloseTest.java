@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -26,7 +21,6 @@ import java.util.HashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpVersion;
@@ -92,7 +86,8 @@ public class CloseTest extends AbstractServerTest
                 output.write(BufferUtil.toArray(buffer));
             }
 
-            Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+            Parser parser = new Parser(byteBufferPool, 8192);
+            parser.init(new Parser.Listener.Adapter()
             {
                 @Override
                 public void onHeaders(HeadersFrame frame)
@@ -109,8 +104,7 @@ public class CloseTest extends AbstractServerTest
                         throw new RuntimeIOException(x);
                     }
                 }
-            }, 4096, 8192);
-            parser.init(UnaryOperator.identity());
+            });
 
             parseResponse(client, parser);
 
@@ -157,7 +151,8 @@ public class CloseTest extends AbstractServerTest
             // Don't close the connection; the server should close.
 
             final CountDownLatch responseLatch = new CountDownLatch(1);
-            Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+            Parser parser = new Parser(byteBufferPool, 8192);
+            parser.init(new Parser.Listener.Adapter()
             {
                 @Override
                 public void onHeaders(HeadersFrame frame)
@@ -166,8 +161,7 @@ public class CloseTest extends AbstractServerTest
                     // HEADERS, the server is able to send us the response.
                     responseLatch.countDown();
                 }
-            }, 4096, 8192);
-            parser.init(UnaryOperator.identity());
+            });
 
             parseResponse(client, parser);
 
@@ -222,7 +216,8 @@ public class CloseTest extends AbstractServerTest
 
             final CountDownLatch responseLatch = new CountDownLatch(1);
             final CountDownLatch closeLatch = new CountDownLatch(1);
-            Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+            Parser parser = new Parser(byteBufferPool, 8192);
+            parser.init(new Parser.Listener.Adapter()
             {
                 @Override
                 public void onHeaders(HeadersFrame frame)
@@ -235,8 +230,7 @@ public class CloseTest extends AbstractServerTest
                 {
                     closeLatch.countDown();
                 }
-            }, 4096, 8192);
-            parser.init(UnaryOperator.identity());
+            });
 
             parseResponse(client, parser);
 

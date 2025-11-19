@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -23,6 +18,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -37,7 +33,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.HttpStatus;
-import org.eclipse.jetty.http.tools.HttpTester;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
@@ -52,6 +48,7 @@ import org.junit.jupiter.api.Test;
 
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -61,7 +58,7 @@ public class ConnectHandlerTest extends AbstractConnectHandlerTest
     public void prepare() throws Exception
     {
         server = new Server();
-        serverConnector = new ServerConnector(server);
+        serverConnector = new ServerConnector(server, 1, 1);
         server.addConnector(serverConnector);
         server.setHandler(new ServerHandler());
         server.start();
@@ -90,7 +87,60 @@ public class ConnectHandlerTest extends AbstractConnectHandlerTest
     }
 
     @Test
-    public void testCONNECTwithIPv6() throws Exception
+    public void testCONNECTAndClose() throws Exception
+    {
+        disposeProxy();
+        connectHandler = new ConnectHandler()
+        {
+            @Override
+            protected void handleConnect(Request baseRequest, HttpServletRequest request, HttpServletResponse response, String serverAddress)
+            {
+                try
+                {
+                    super.handleConnect(baseRequest, request, response, serverAddress);
+                    // Delay the return of this method to trigger the race
+                    // with the server closing the connection immediately.
+                    Thread.sleep(500);
+                }
+                catch (InterruptedException x)
+                {
+                    throw new RuntimeException(x);
+                }
+            }
+        };
+        proxy.setHandler(connectHandler);
+        proxy.start();
+
+        try (ServerSocket server = new ServerSocket(0))
+        {
+            String hostPort = "localhost:" + server.getLocalPort();
+            String request =
+                "CONNECT " + hostPort + " HTTP/1.1\r\n" +
+                "Host: " + hostPort + "\r\n" +
+                "\r\n";
+            try (Socket socket = newSocket())
+            {
+                OutputStream output = socket.getOutputStream();
+                output.write(request.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+
+                Socket serverSocket = server.accept();
+                // Close immediately to trigger the race with
+                // the return from ConnectHandler.handle().
+                serverSocket.close();
+
+                // Expect 200 OK from the CONNECT request
+                HttpTester.Response response = HttpTester.parseResponse(HttpTester.from(socket.getInputStream()));
+                assertNotNull(response);
+                assertEquals(HttpStatus.OK_200, response.getStatus());
+                // Expect the connection to be closed.
+                assertEquals(-1, socket.getInputStream().read());
+            }
+        }
+    }
+
+    @Test
+    public void testCONNECTWithIPv6() throws Exception
     {
         Assumptions.assumeTrue(Net.isIpv6InterfaceAvailable());
         String hostPort = "[::1]:" + serverConnector.getLocalPort();

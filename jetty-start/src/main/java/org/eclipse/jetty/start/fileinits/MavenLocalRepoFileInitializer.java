@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,12 +17,14 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import javax.xml.parsers.ParserConfigurationException;
 
 import org.eclipse.jetty.start.BaseHome;
 import org.eclipse.jetty.start.FS;
-import org.eclipse.jetty.start.FileInitializer;
 import org.eclipse.jetty.start.StartLog;
 import org.eclipse.jetty.start.Utils;
+import org.xml.sax.SAXException;
 
 /**
  * Attempt to download a <code>maven://</code> URI, by first attempting to find
@@ -36,18 +33,15 @@ import org.eclipse.jetty.start.Utils;
  * <p>
  * Valid URI Formats:
  * <dl>
- * <dt><code>maven://&lt;groupId&gt;/&lt;artifactId&gt;/&lt;version&gt;</code></dt>
- * <dd>minimum requirement (type defaults to <code>jar</code>, with no
- * classifier)</dd>
- * <dt><code>maven://&lt;groupId&gt;/&lt;artifactId&gt;/&lt;version&gt;/&lt;type&gt;</code></dt>
+ * <dt>{@code maven://<groupId>/<artifactId>/<version>}</dt>
+ * <dd>minimum requirement (type defaults to <code>jar</code>, with no classifier)</dd>
+ * <dt>{@code maven://<groupId>/<artifactId>/<version>/<type>}</dt>
  * <dd>optional type requirement</dd>
- * <dt>
- * <code>maven://&lt;groupId&gt;/&lt;artifactId&gt;/&lt;version&gt;/&lt;type&gt;/&lt;classifier&gt;</code>
- * </dt>
+ * <dt><code>{@code maven://<groupId>/<artifactId>/<version>/<type>/<classifier>}</code></dt>
  * <dd>optional type and classifier requirement</dd>
  * </dl>
  */
-public class MavenLocalRepoFileInitializer extends FileInitializer
+public class MavenLocalRepoFileInitializer extends DownloadFileInitializer
 {
     public static class Coordinates
     {
@@ -56,16 +50,21 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         public String version;
         public String type;
         public String classifier;
-        private String mavenRepoUri = "https://repo1.maven.org/maven2/";
+        private String mavenRepoUri = DEFAULT_REMOTE_REPO;
 
         public String toPath()
+        {
+            return toActualPath(version);
+        }
+
+        private String toActualPath(String actualVersion)
         {
             StringBuilder pathlike = new StringBuilder();
             pathlike.append(groupId.replace('.', '/'));
             pathlike.append('/').append(artifactId);
             pathlike.append('/').append(version);
             pathlike.append('/').append(artifactId);
-            pathlike.append('-').append(version);
+            pathlike.append('-').append(actualVersion);
             if (classifier != null)
             {
                 pathlike.append('-').append(classifier);
@@ -74,13 +73,37 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
             return pathlike.toString();
         }
 
+        public String toMetadataPath()
+        {
+            StringBuilder pathLike = new StringBuilder();
+            pathLike.append(groupId.replace('.', '/'));
+            pathLike.append('/').append(artifactId);
+            pathLike.append('/').append(version);
+            pathLike.append("/maven-metadata.xml");
+
+            return pathLike.toString();
+        }
+
         public URI toCentralURI()
         {
             return URI.create(mavenRepoUri + toPath());
         }
+
+        public URI toCentralURI(String actualVersion)
+        {
+            return URI.create(mavenRepoUri + toActualPath(actualVersion));
+        }
+
+        public URI toSnapshotMetadataXmlURI()
+        {
+            return URI.create(mavenRepoUri + toMetadataPath());
+        }
     }
 
-    private Path localRepositoryDir;
+    private final Path localRepositoryDir;
+
+    private static final String DEFAULT_REMOTE_REPO = "https://repo1.maven.org/maven2/";
+
     private final boolean readonly;
     private String mavenRepoUri;
 
@@ -91,17 +114,35 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
 
     public MavenLocalRepoFileInitializer(BaseHome baseHome, Path localRepoDir, boolean readonly)
     {
-        super(baseHome, "maven");
-        this.localRepositoryDir = localRepoDir;
-        this.readonly = readonly;
+        this(baseHome, localRepoDir, readonly, null);
     }
 
     public MavenLocalRepoFileInitializer(BaseHome baseHome, Path localRepoDir, boolean readonly, String mavenRepoUri)
     {
         super(baseHome, "maven");
-        this.localRepositoryDir = localRepoDir;
+        this.localRepositoryDir = localRepoDir != null ? localRepoDir : newTempRepo();
         this.readonly = readonly;
         this.mavenRepoUri = mavenRepoUri;
+    }
+
+    @Override
+    protected boolean allowInsecureHttpDownloads()
+    {
+        // Always allow insecure http downloads in this file initializer.
+
+        // The user is either using the DEFAULT_REMOTE_REPO, or has redeclared it to a new URI.
+        // If the `maven.repo.uri` property has been changed from default, this indicates a change
+        // to a different maven uri, overwhelmingly pointing to a maven repository manager
+        // like artifactory or nexus.   This is viewed as an intentional decision by the
+        // user and as such we should not put additional hurdles in their way.
+        return true;
+    }
+
+    private static Path newTempRepo()
+    {
+        Path javaTempDir = Paths.get(System.getProperty("java.io.tmpdir"));
+        // Simple return here, don't create the directory, unless it's being used.
+        return javaTempDir.resolve("jetty-start-downloads");
     }
 
     @Override
@@ -114,16 +155,55 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
             return false;
         }
 
-        Path destination = getDestination(uri, location);
-
-        if (isFilePresent(destination))
-            return false;
-
-        // If using local repository
-        if (this.localRepositoryDir != null)
+        URI destURI = URI.create(location);
+        if (destURI.isAbsolute() && destURI.getScheme().equals("extract"))
         {
-            // Grab copy from local repository (download if needed to local
-            // repository)
+            // Extract Flow
+
+            // Download to local repo.
+            Path localFile = localRepositoryDir.resolve(coords.toPath());
+            if (!FS.canReadFile(localFile))
+            {
+                if (FS.ensureDirectoryExists(localFile.getParent()))
+                    StartLog.info("mkdir " + _basehome.toShortForm(localFile.getParent()));
+                download(coords, localFile);
+                if (!FS.canReadFile(localFile))
+                {
+                    throw new IOException("Unable to establish temp copy of file to extract: " + localFile);
+                }
+            }
+
+            // Destination Directory
+            Path destination;
+            String extractLocation = destURI.getSchemeSpecificPart();
+            if (extractLocation.equals("/"))
+            {
+                destination = _basehome.getBasePath();
+            }
+            else
+            {
+                extractLocation = extractLocation.replaceFirst("^[/\\\\]*", "");
+                if (!extractLocation.endsWith("/"))
+                    throw new IOException("Extract mode can only unpack to a directory, end your URL with a slash: " + location);
+                destination = _basehome.getBasePath().resolve(extractLocation);
+
+                if (Files.exists(destination) && !Files.isDirectory(destination))
+                    throw new IOException("Destination already exists, and is not a directory: " + destination);
+
+                if (!destination.startsWith(_basehome.getBasePath()))
+                    throw new IOException("For security reasons, Jetty start is unable to extract outside of the ${jetty.base} - " + location);
+            }
+
+            FS.extract(localFile, destination);
+        }
+        else
+        {
+            // Copy Flow
+            Path destination = getDestination(uri, location);
+            if (isFilePresent(destination))
+                return false;
+
+            // Grab copy from local repository (download if needed to local repository)
             Path localRepoFile = getLocalRepoFile(coords);
 
             if (localRepoFile != null)
@@ -134,10 +214,11 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
                 Files.copy(localRepoFile, destination);
                 return true;
             }
+
+            // normal non-local repo version
+            download(coords, destination);
         }
 
-        // normal non-local repo version
-        download(coords.toCentralURI(), destination);
         return true;
     }
 
@@ -150,11 +231,23 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         // Download, if needed
         if (!readonly)
         {
-            download(coords.toCentralURI(), localFile);
+            download(coords, localFile);
             return localFile;
         }
 
         return null;
+    }
+
+    public String getRemoteUri()
+    {
+        if (this.mavenRepoUri != null)
+        {
+            return this.mavenRepoUri;
+        }
+        else
+        {
+            return System.getProperty("maven.repo.uri", DEFAULT_REMOTE_REPO);
+        }
     }
 
     public Coordinates getCoordinates(URI uri)
@@ -194,14 +287,7 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         coords.version = parts[2];
         coords.type = "jar";
         coords.classifier = null;
-        if (this.mavenRepoUri != null)
-        {
-            coords.mavenRepoUri = this.mavenRepoUri;
-        }
-        else
-        {
-            coords.mavenRepoUri = System.getProperty("maven.repo.uri", coords.mavenRepoUri);
-        }
+        coords.mavenRepoUri = getRemoteUri();
 
         if (parts.length >= 4)
         {
@@ -217,6 +303,65 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         }
 
         return coords;
+    }
+
+    protected void download(Coordinates coords, Path destination)
+        throws IOException
+    {
+        if (coords.version.endsWith("-SNAPSHOT"))
+        {
+            Path localRepoMetadataPath = localRepositoryDir.resolve(coords.toMetadataPath());
+            if (isMetadataStale(localRepoMetadataPath))
+            {
+                // Grab a fresh copy of the metadata xml
+                URI mavenMetadataURI = coords.toSnapshotMetadataXmlURI();
+                super.download(mavenMetadataURI, localRepoMetadataPath);
+            }
+
+            if (Files.exists(localRepoMetadataPath))
+            {
+                // parse metadata to get actual SNAPSHOT version
+                String actualVersion = getMetadataVersion(localRepoMetadataPath, coords);
+                super.download(coords.toCentralURI(actualVersion), destination);
+            }
+        }
+        else
+        {
+            super.download(coords.toCentralURI(), destination);
+        }
+    }
+
+    private boolean isMetadataStale(Path localRepoMetadataPath)
+    {
+        if (!Files.exists(localRepoMetadataPath))
+        {
+            // doesn't exist, it's stale.
+            return true;
+        }
+
+        try
+        {
+            MavenMetadata mavenMetadata = new MavenMetadata(localRepoMetadataPath);
+            return MavenMetadata.isExpiredTimestamp(mavenMetadata.getLastUpdated());
+        }
+        catch (IOException | ParserConfigurationException | SAXException e)
+        {
+            return true;
+        }
+    }
+
+    private String getMetadataVersion(Path localRepoMetadataPath, Coordinates coords) throws IOException
+    {
+        try
+        {
+            MavenMetadata mavenMetadata = new MavenMetadata(localRepoMetadataPath);
+            MavenMetadata.Snapshot snapshot = mavenMetadata.getSnapshot(coords.classifier, coords.type);
+            return snapshot.value;
+        }
+        catch (IOException | ParserConfigurationException | SAXException e)
+        {
+            throw new IOException("Unable to parse " + localRepoMetadataPath, e);
+        }
     }
 
     /**

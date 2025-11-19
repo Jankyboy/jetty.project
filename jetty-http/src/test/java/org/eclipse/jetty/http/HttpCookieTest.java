@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -136,6 +131,9 @@ public class HttpCookieTest
 
         httpCookie = new HttpCookie("everything", "value", "domain", "path", 0, true, true, null, -1, HttpCookie.SameSite.STRICT);
         assertEquals("everything=value; Path=path; Domain=domain; Expires=Thu, 01-Jan-1970 00:00:00 GMT; Max-Age=0; Secure; HttpOnly; SameSite=Strict", httpCookie.getRFC6265SetCookie());
+
+        httpCookie = new HttpCookie("everything", "value", "domain", "path", 0, true, true, null, -1, HttpCookie.SameSite.STRICT, true);
+        assertEquals("everything=value; Path=path; Domain=domain; Expires=Thu, 01-Jan-1970 00:00:00 GMT; Max-Age=0; Secure; HttpOnly; SameSite=Strict; Partitioned", httpCookie.getRFC6265SetCookie());
     }
 
     public static Stream<String> rfc6265BadNameSource()
@@ -341,7 +339,8 @@ public class HttpCookieTest
             Arguments.of("__HTTP_ONLY____SAME_SITE_NONE__comment", "comment"),
             // mixed - attributes at start and end
             Arguments.of("__SAME_SITE_NONE__comment__HTTP_ONLY__", "comment"),
-            Arguments.of("__HTTP_ONLY__comment__SAME_SITE_NONE__", "comment")
+            Arguments.of("__HTTP_ONLY__comment__SAME_SITE_NONE__", "comment"),
+            Arguments.of("__PARTITIONED__comment__SAME_SITE_NONE__", "comment")
         );
     }
 
@@ -351,13 +350,9 @@ public class HttpCookieTest
     {
         String actualComment = HttpCookie.getCommentWithoutAttributes(rawComment);
         if (expectedComment == null)
-        {
             assertNull(actualComment);
-        }
         else
-        {
             assertEquals(actualComment, expectedComment);
-        }
     }
 
     @Test
@@ -373,6 +368,8 @@ public class HttpCookieTest
             is("__HTTP_ONLY____SAME_SITE_NONE__"));
         assertThat(HttpCookie.getCommentWithAttributes("hello", true, HttpCookie.SameSite.LAX),
             is("hello__HTTP_ONLY____SAME_SITE_LAX__"));
+        assertThat(HttpCookie.getCommentWithAttributes("hello", true, HttpCookie.SameSite.LAX, true),
+            is("hello__HTTP_ONLY____SAME_SITE_LAX____PARTITIONED__"));
 
         assertThat(HttpCookie.getCommentWithAttributes("__HTTP_ONLY____SAME_SITE_LAX__", false, null), nullValue());
         assertThat(HttpCookie.getCommentWithAttributes("__HTTP_ONLY____SAME_SITE_LAX__", true, HttpCookie.SameSite.NONE),

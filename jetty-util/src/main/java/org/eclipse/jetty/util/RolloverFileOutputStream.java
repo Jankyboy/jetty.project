@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -238,9 +233,19 @@ public class RolloverFileOutputStream extends OutputStream
             File file = new File(_filename);
             _filename = file.getCanonicalPath();
             file = new File(_filename);
-            File dir = new File(file.getParent());
-            if (!dir.isDirectory() || !dir.canWrite())
+            File dir = file.getParentFile();
+            if (!dir.exists())
+            {
+                throw new IOException("Log directory does not exist. Path=" + dir);
+            }
+            else if (!dir.isDirectory())
+            {
+                throw new IOException("Path for Log directory is not a directory. Path=" + dir);
+            }
+            else if (!dir.canWrite())
+            {
                 throw new IOException("Cannot write log directory " + dir);
+            }
 
             // Is this a rollover file?
             String filename = file.getName();

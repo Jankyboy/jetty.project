@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -26,14 +21,22 @@ import org.eclipse.jetty.io.ByteBufferPool;
 public class HeaderBlockFragments
 {
     private final ByteBufferPool byteBufferPool;
+    private final int maxCapacity;
     private PriorityFrame priorityFrame;
-    private boolean endStream;
     private int streamId;
+    private boolean endStream;
     private ByteBuffer storage;
 
+    @Deprecated
     public HeaderBlockFragments(ByteBufferPool byteBufferPool)
     {
+        this(byteBufferPool, 8192);
+    }
+
+    public HeaderBlockFragments(ByteBufferPool byteBufferPool, int maxCapacity)
+    {
         this.byteBufferPool = byteBufferPool;
+        this.maxCapacity = maxCapacity;
     }
 
     public ByteBufferPool getByteBufferPool()
@@ -41,18 +44,30 @@ public class HeaderBlockFragments
         return byteBufferPool;
     }
 
-    public void storeFragment(ByteBuffer fragment, int length, boolean last)
+    void reset()
+    {
+        priorityFrame = null;
+        streamId = 0;
+        endStream = false;
+        storage = null;
+    }
+
+    public boolean storeFragment(ByteBuffer fragment, int length, boolean last)
     {
         if (storage == null)
         {
-            int space = last ? length : length * 2;
-            storage = byteBufferPool.acquire(space, fragment.isDirect());
+            if (length > maxCapacity)
+                return false;
+            int capacity = last ? length : length * 2;
+            storage = byteBufferPool.acquire(capacity, fragment.isDirect());
             storage.clear();
         }
 
         // Grow the storage if necessary.
         if (storage.remaining() < length)
         {
+            if (storage.position() + length > maxCapacity)
+                return false;
             int space = last ? length : length * 2;
             int capacity = storage.position() + space;
             ByteBuffer newStorage = byteBufferPool.acquire(capacity, storage.isDirect());
@@ -68,6 +83,7 @@ public class HeaderBlockFragments
         fragment.limit(fragment.position() + length);
         storage.put(fragment);
         fragment.limit(limit);
+        return true;
     }
 
     public PriorityFrame getPriorityFrame()
@@ -92,10 +108,8 @@ public class HeaderBlockFragments
 
     public ByteBuffer complete()
     {
-        ByteBuffer result = storage;
-        storage = null;
-        result.flip();
-        return result;
+        storage.flip();
+        return storage;
     }
 
     public int getStreamId()

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -232,7 +227,7 @@ public class NamingContext implements Context, Dumpable
     {
         String firstComponent = cname.get(0);
 
-        if (firstComponent.equals(""))
+        if (firstComponent.isEmpty())
             return this;
 
         Binding binding = getBinding(firstComponent);
@@ -298,7 +293,7 @@ public class NamingContext implements Context, Dumpable
             String firstComponent = cname.get(0);
             Object ctx = null;
 
-            if (firstComponent.equals(""))
+            if (firstComponent.isEmpty())
                 ctx = this;
             else
             {
@@ -1033,10 +1028,10 @@ public class NamingContext implements Context, Dumpable
         {
             if (canonicalName.size() > 1)
             {
-                if (canonicalName.get(0).equals(""))
+                if (canonicalName.get(0).isEmpty())
                     canonicalName = canonicalName.getSuffix(1);
 
-                if (canonicalName.get(canonicalName.size() - 1).equals(""))
+                if (canonicalName.get(canonicalName.size() - 1).isEmpty())
                     canonicalName = canonicalName.getPrefix(canonicalName.size() - 1);
             }
         }

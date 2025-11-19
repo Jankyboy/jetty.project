@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import javax.servlet.AsyncContext;
+import javax.servlet.AsyncEvent;
+import javax.servlet.AsyncListener;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -38,8 +35,6 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpMethod;
-import org.eclipse.jetty.http.HttpURI;
-import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.EndPoint;
@@ -52,7 +47,6 @@ import org.eclipse.jetty.server.HttpChannel;
 import org.eclipse.jetty.server.HttpTransport;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.HandlerWrapper;
-import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.HostPort;
 import org.eclipse.jetty.util.Promise;
@@ -199,12 +193,7 @@ public class ConnectHandler extends HandlerWrapper
         String tunnelProtocol = jettyRequest.getMetaData().getProtocol();
         if (HttpMethod.CONNECT.is(request.getMethod()) && tunnelProtocol == null)
         {
-            String serverAddress = target;
-            if (HttpVersion.HTTP_2.is(request.getProtocol()))
-            {
-                HttpURI httpURI = jettyRequest.getHttpURI();
-                serverAddress = httpURI.getHost() + ":" + httpURI.getPort();
-            }
+            String serverAddress = jettyRequest.getHttpURI().getAuthority();
             if (LOG.isDebugEnabled())
                 LOG.debug("CONNECT request for {}", serverAddress);
             handleConnect(jettyRequest, request, response, serverAddress);
@@ -573,9 +562,9 @@ public class ConnectHandler extends HandlerWrapper
         }
     }
 
-    public class UpstreamConnection extends ProxyConnection
+    public class UpstreamConnection extends ProxyConnection implements AsyncListener
     {
-        private ConnectContext connectContext;
+        private final ConnectContext connectContext;
 
         public UpstreamConnection(EndPoint endPoint, Executor executor, ByteBufferPool bufferPool, ConnectContext connectContext)
         {
@@ -587,8 +576,9 @@ public class ConnectHandler extends HandlerWrapper
         public void onOpen()
         {
             super.onOpen();
+            // Delay fillInterested() until the 200 OK response has been sent.
+            connectContext.asyncContext.addListener(this);
             onConnectSuccess(connectContext, UpstreamConnection.this);
-            fillInterested();
         }
 
         @Override
@@ -601,6 +591,28 @@ public class ConnectHandler extends HandlerWrapper
         protected void write(EndPoint endPoint, ByteBuffer buffer, Callback callback)
         {
             ConnectHandler.this.write(endPoint, buffer, callback, getContext());
+        }
+
+        @Override
+        public void onComplete(AsyncEvent event)
+        {
+            fillInterested();
+        }
+
+        @Override
+        public void onTimeout(AsyncEvent event)
+        {
+        }
+
+        @Override
+        public void onError(AsyncEvent event)
+        {
+            close(event.getThrowable());
+        }
+
+        @Override
+        public void onStartAsync(AsyncEvent event)
+        {
         }
     }
 

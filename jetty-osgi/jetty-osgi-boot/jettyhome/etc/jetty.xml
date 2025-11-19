@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://www.eclipse.org/jetty/configure_9_3.dtd">
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://jetty.org/configure_9_3.dtd">
 
 
 <!-- =============================================================== -->
 <!-- Configure the Jetty Server                                      -->
 <!--                                                                 -->
 <!-- Documentation of this file format can be found at:              -->
-<!-- https://www.eclipse.org/jetty/documentation/current/        -->
+<!-- https://eclipse.dev/jetty/documentation/                        -->
 <!-- =============================================================== -->
 
 <Configure id="Server" class="org.eclipse.jetty.server.Server">
@@ -78,7 +78,7 @@
     <Call class="org.eclipse.jetty.webapp.Configurations" name="setServerDefault">
       <Arg><Ref refid="Server"/></Arg>
       <Call name="add">
-        <Arg>
+        <Arg name="configClass">
           <Array type="String">
             <Item>org.eclipse.jetty.webapp.FragmentConfiguration</Item>
             <Item>org.eclipse.jetty.webapp.JettyWebXmlConfiguration</Item>

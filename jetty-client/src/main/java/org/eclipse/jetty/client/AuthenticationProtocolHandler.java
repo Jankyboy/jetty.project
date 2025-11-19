@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -24,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,8 +33,10 @@ import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.client.util.BufferingResponseListener;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.QuotedCSV;
+import org.eclipse.jetty.util.NanoTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -208,18 +206,27 @@ public abstract class AuthenticationProtocolHandler implements ProtocolHandler
 
                 conversation.setAttribute(authenticationAttribute, true);
 
-                URI requestURI = request.getURI();
-                String path = null;
-                if (requestURI == null)
+                Request newRequest = client.copyRequest(request, request.getURI());
+                if (HttpMethod.CONNECT.is(newRequest.getMethod()))
+                    newRequest.path(request.getPath());
+
+                // Adjust the timeout of the new request, taking into account the
+                // timeout of the previous request and the time already elapsed.
+                long timeoutNanoTime = request.getTimeoutNanoTime();
+                if (timeoutNanoTime < Long.MAX_VALUE)
                 {
-                    requestURI = resolveURI(request, null);
-                    path = request.getPath();
+                    long newTimeout = NanoTime.until(timeoutNanoTime);
+                    if (newTimeout > 0)
+                    {
+                        newRequest.timeout(newTimeout, TimeUnit.NANOSECONDS);
+                    }
+                    else
+                    {
+                        TimeoutException failure = new TimeoutException("Total timeout " + request.getConversation().getTimeout() + " ms elapsed");
+                        forwardFailureComplete(request, failure, response, failure);
+                        return;
+                    }
                 }
-                Request newRequest = client.copyRequest(request, requestURI);
-                // Disable the timeout so that only the one from the initial request applies.
-                newRequest.timeout(0, TimeUnit.MILLISECONDS);
-                if (path != null)
-                    newRequest.path(path);
 
                 authnResult.apply(newRequest);
                 // Copy existing, explicitly set, authorization headers.

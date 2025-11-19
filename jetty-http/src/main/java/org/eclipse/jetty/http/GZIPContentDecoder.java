@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -42,9 +37,10 @@ public class GZIPContentDecoder implements Destroyable
     private static final long UINT_MAX = 0xFFFFFFFFL;
 
     private final List<ByteBuffer> _inflateds = new ArrayList<>();
-    private final InflaterPool _inflaterPool;
     private final ByteBufferPool _pool;
     private final int _bufferSize;
+    private final boolean _useDirectBuffers;
+    private InflaterPool.Entry _inflaterEntry;
     private Inflater _inflater;
     private State _state;
     private int _size;
@@ -64,15 +60,26 @@ public class GZIPContentDecoder implements Destroyable
 
     public GZIPContentDecoder(ByteBufferPool pool, int bufferSize)
     {
-        this(null, pool, bufferSize);
+        this(new InflaterPool(0, true), pool, bufferSize);
+    }
+
+    public GZIPContentDecoder(ByteBufferPool pool, int bufferSize, boolean useDirectBuffers)
+    {
+        this(new InflaterPool(0, true), pool, bufferSize, useDirectBuffers);
     }
 
     public GZIPContentDecoder(InflaterPool inflaterPool, ByteBufferPool pool, int bufferSize)
     {
-        _inflaterPool = inflaterPool;
-        _inflater = (inflaterPool == null) ? new Inflater(true) : inflaterPool.acquire();
+        this(inflaterPool, pool, bufferSize, false);
+    }
+
+    public GZIPContentDecoder(InflaterPool inflaterPool, ByteBufferPool pool, int bufferSize, boolean useDirectBuffers)
+    {
+        _inflaterEntry = inflaterPool.acquire();
+        _inflater = _inflaterEntry.get();
         _bufferSize = bufferSize;
         _pool = pool;
+        _useDirectBuffers = useDirectBuffers;
         reset();
     }
 
@@ -214,6 +221,13 @@ public class GZIPContentDecoder implements Destroyable
                             if (buffer == null)
                                 buffer = acquire(_bufferSize);
 
+                            if (_inflater.needsInput())
+                            {
+                                if (!compressed.hasRemaining())
+                                    return;
+                                _inflater.setInput(compressed);
+                            }
+
                             try
                             {
                                 int pos = BufferUtil.flipToFill(buffer);
@@ -231,12 +245,6 @@ public class GZIPContentDecoder implements Destroyable
                                 buffer = null;
                                 if (decodedChunk(chunk))
                                     return;
-                            }
-                            else if (_inflater.needsInput())
-                            {
-                                if (!compressed.hasRemaining())
-                                    return;
-                                _inflater.setInput(compressed);
                             }
                             else if (_inflater.finished())
                             {
@@ -261,7 +269,7 @@ public class GZIPContentDecoder implements Destroyable
                 {
                     case ID:
                     {
-                        _value += (currByte & 0xFF) << 8 * _size;
+                        _value += (currByte & 0xFFL) << (8 * _size);
                         ++_size;
                         if (_size == 2)
                         {
@@ -308,7 +316,7 @@ public class GZIPContentDecoder implements Destroyable
                     }
                     case EXTRA_LENGTH:
                     {
-                        _value += (currByte & 0xFF) << 8 * _size;
+                        _value += (currByte & 0xFFL) << (8 * _size);
                         ++_size;
                         if (_size == 2)
                             _state = State.EXTRA;
@@ -362,7 +370,7 @@ public class GZIPContentDecoder implements Destroyable
                     }
                     case CRC:
                     {
-                        _value += (currByte & 0xFF) << 8 * _size;
+                        _value += (currByte & 0xFFL) << (8 * _size);
                         ++_size;
                         if (_size == 4)
                         {
@@ -416,11 +424,8 @@ public class GZIPContentDecoder implements Destroyable
     @Override
     public void destroy()
     {
-        if (_inflaterPool == null)
-            _inflater.end();
-        else
-            _inflaterPool.release(_inflater);
-
+        _inflaterEntry.release();
+        _inflaterEntry = null;
         _inflater = null;
     }
 
@@ -440,7 +445,7 @@ public class GZIPContentDecoder implements Destroyable
      */
     public ByteBuffer acquire(int capacity)
     {
-        return _pool == null ? BufferUtil.allocate(capacity) : _pool.acquire(capacity, false);
+        return _pool == null ? BufferUtil.allocate(capacity) : _pool.acquire(capacity, _useDirectBuffers);
     }
 
     /**

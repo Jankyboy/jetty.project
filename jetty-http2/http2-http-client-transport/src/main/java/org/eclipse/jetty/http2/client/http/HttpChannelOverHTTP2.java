@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -23,6 +18,7 @@ import org.eclipse.jetty.client.HttpDestination;
 import org.eclipse.jetty.client.HttpExchange;
 import org.eclipse.jetty.client.HttpReceiver;
 import org.eclipse.jetty.client.HttpSender;
+import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.HTTP2Channel;
@@ -73,6 +69,12 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     }
 
     @Override
+    protected Connection getConnection()
+    {
+        return connection;
+    }
+
+    @Override
     protected HttpSender getHttpSender()
     {
         return sender;
@@ -107,25 +109,34 @@ public class HttpChannelOverHTTP2 extends HttpChannel
         sender.send(exchange);
     }
 
+    void acquire()
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("channel acquired {} {}", this, stream);
+    }
+
     @Override
     public void release()
     {
         setStream(null);
         connection.release(this);
-        getHttpDestination().release(getHttpConnection());
+        if (LOG.isDebugEnabled())
+            LOG.debug("channel released {} {}", this, stream);
     }
 
     @Override
     public void exchangeTerminated(HttpExchange exchange, Result result)
     {
         super.exchangeTerminated(exchange, result);
+        Stream stream = getStream();
+        if (LOG.isDebugEnabled())
+            LOG.debug("exchange terminated {} {}", result, stream);
         if (result.isSucceeded())
         {
             release();
         }
         else
         {
-            Stream stream = getStream();
             if (stream != null)
                 stream.reset(new ResetFrame(stream.getId(), ErrorCode.CANCEL_STREAM_ERROR.code), new ReleaseCallback());
             else
@@ -186,7 +197,14 @@ public class HttpChannelOverHTTP2 extends HttpChannel
         }
 
         @Override
-        public void onData(Stream stream, DataFrame frame, Callback callback)
+        public void onBeforeData(Stream stream)
+        {
+            // Don't demand here, as the initial demand is controlled by
+            // the application via DemandedContentListener.onBeforeContent().
+        }
+
+        @Override
+        public void onDataDemanded(Stream stream, DataFrame frame, Callback callback)
         {
             HTTP2Channel.Client channel = (HTTP2Channel.Client)((IStream)stream).getAttachment();
             channel.onData(frame, callback);

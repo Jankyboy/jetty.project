@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,8 +13,11 @@
 
 package org.eclipse.jetty.client.http;
 
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -27,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
+import org.eclipse.jetty.client.HttpChannel;
 import org.eclipse.jetty.client.HttpClientTransport;
 import org.eclipse.jetty.client.HttpConnection;
 import org.eclipse.jetty.client.HttpConversation;
@@ -100,6 +99,18 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
     public HttpDestination getHttpDestination()
     {
         return delegate.getHttpDestination();
+    }
+
+    @Override
+    public SocketAddress getLocalSocketAddress()
+    {
+        return delegate.getLocalSocketAddress();
+    }
+
+    @Override
+    public SocketAddress getRemoteSocketAddress()
+    {
+        return delegate.getRemoteSocketAddress();
     }
 
     @Override
@@ -186,7 +197,8 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
 
     protected boolean onIdleTimeout(long idleTimeout)
     {
-        return delegate.onIdleTimeout(idleTimeout);
+        TimeoutException failure = new TimeoutException("Idle timeout " + idleTimeout + " ms");
+        return delegate.onIdleTimeout(idleTimeout, failure);
     }
 
     @Override
@@ -202,11 +214,26 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
         return receiver.onUpgradeFrom();
     }
 
+    void onResponseHeaders(HttpExchange exchange)
+    {
+        HttpRequest request = exchange.getRequest();
+        if (request instanceof HttpProxy.TunnelRequest)
+        {
+            // Restore idle timeout
+            getEndPoint().setIdleTimeout(idleTimeout);
+        }
+    }
+
     public void release()
     {
         // Restore idle timeout
         getEndPoint().setIdleTimeout(idleTimeout);
         getHttpDestination().release(this);
+    }
+
+    public void remove()
+    {
+        getHttpDestination().remove(this);
     }
 
     @Override
@@ -228,6 +255,7 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
             getEndPoint().close();
             if (LOG.isDebugEnabled())
                 LOG.debug("Closed {}", this);
+            delegate.destroy();
         }
     }
 
@@ -242,14 +270,7 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
     {
         if (!closed.get())
             return false;
-        if (sweeps.incrementAndGet() < 4)
-            return false;
-        return true;
-    }
-
-    public void remove()
-    {
-        getHttpDestination().remove(this);
+        return sweeps.incrementAndGet() > 3;
     }
 
     @Override
@@ -258,8 +279,8 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
         return String.format("%s@%x(l:%s <-> r:%s,closed=%b)=>%s",
             getClass().getSimpleName(),
             hashCode(),
-            getEndPoint().getLocalAddress(),
-            getEndPoint().getRemoteAddress(),
+            getEndPoint().getLocalSocketAddress(),
+            getEndPoint().getRemoteSocketAddress(),
             closed.get(),
             channel);
     }
@@ -269,6 +290,24 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
         private Delegate(HttpDestination destination)
         {
             super(destination);
+        }
+
+        @Override
+        protected Iterator<HttpChannel> getHttpChannels()
+        {
+            return Collections.<HttpChannel>singleton(channel).iterator();
+        }
+
+        @Override
+        public SocketAddress getLocalSocketAddress()
+        {
+            return getEndPoint().getLocalSocketAddress();
+        }
+
+        @Override
+        public SocketAddress getRemoteSocketAddress()
+        {
+            return getEndPoint().getRemoteSocketAddress();
         }
 
         @Override
@@ -295,9 +334,8 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements IConne
 
             if (request instanceof HttpProxy.TunnelRequest)
             {
-                long connectTimeout = getHttpClient().getConnectTimeout();
-                request.timeout(connectTimeout, TimeUnit.MILLISECONDS)
-                        .idleTimeout(2 * connectTimeout, TimeUnit.MILLISECONDS);
+                // Override the idle timeout in case it is shorter than the connect timeout.
+                request.idleTimeout(2 * getHttpClient().getConnectTimeout(), TimeUnit.MILLISECONDS);
             }
 
             HttpConversation conversation = request.getConversation();

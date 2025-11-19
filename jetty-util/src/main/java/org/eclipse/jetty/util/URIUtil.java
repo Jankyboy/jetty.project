@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,10 +13,12 @@
 
 package org.eclipse.jetty.util;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import org.eclipse.jetty.util.Utf8Appendable.NotUtf8Exception;
 import org.slf4j.Logger;
@@ -38,13 +35,30 @@ import org.slf4j.LoggerFactory;
  *
  * @see UrlEncoded
  */
-public class URIUtil
-    implements Cloneable
+public final class URIUtil
 {
     private static final Logger LOG = LoggerFactory.getLogger(URIUtil.class);
     public static final String SLASH = "/";
     public static final String HTTP = "http";
     public static final String HTTPS = "https";
+
+    // From https://www.rfc-editor.org/rfc/rfc3986
+    private static final String UNRESERVED = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-._~";
+    private static final String SUBDELIMS = "!$&'()*+,;=";
+    private static final String REGNAME = UNRESERVED + SUBDELIMS;
+
+    // Allowed characters in https://www.rfc-editor.org/rfc/rfc3986 reg-name
+    private static final boolean[] REGNAME_ALLOWED;
+
+    static
+    {
+        REGNAME_ALLOWED = new boolean[128];
+        Arrays.fill(REGNAME_ALLOWED, false);
+        for (char c : REGNAME.toCharArray())
+        {
+            REGNAME_ALLOWED[c] = true;
+        }
+    }
 
     // Use UTF-8 as per http://www.w3.org/TR/html40/appendix/notes.html#non-ascii-chars
     public static final Charset __CHARSET = StandardCharsets.UTF_8;
@@ -120,7 +134,7 @@ public class URIUtil
                         buf = new StringBuilder(path.length() * 2);
                         break loop;
                     default:
-                        if (c > 127)
+                        if (c < 0x20 || c >= 0x7f)
                         {
                             bytes = path.getBytes(URIUtil.__CHARSET);
                             buf = new StringBuilder(path.length() * 2);
@@ -193,7 +207,7 @@ public class URIUtil
                     continue;
 
                 default:
-                    if (c > 127)
+                    if (c < 0x20 || c >= 0x7f)
                     {
                         bytes = path.getBytes(URIUtil.__CHARSET);
                         break loop;
@@ -261,7 +275,7 @@ public class URIUtil
                         buf.append("%7D");
                         continue;
                     default:
-                        if (c < 0)
+                        if (c < 0x20 || c >= 0x7f)
                         {
                             buf.append('%');
                             TypeUtil.toHex(c, buf);
@@ -475,8 +489,8 @@ public class URIUtil
                             char u = path.charAt(i + 1);
                             if (u == 'u')
                             {
-                                // TODO remove %u support in jetty-10
-                                // this is wrong. This is a codepoint not a char
+                                // UTF16 encoding is only supported with UriCompliance.Violation.UTF16_ENCODINGS.
+                                // This is wrong. This is a codepoint not a char
                                 builder.append((char)(0xffff & TypeUtil.parseInt(path, i + 2, 4, 16)));
                                 i += 5;
                             }
@@ -538,7 +552,6 @@ public class URIUtil
         {
             throw new IllegalArgumentException("cannot decode URI", e);
         }
-
     }
 
     /* Decode a URI path and strip parameters of ISO-8859-1 path
@@ -563,8 +576,7 @@ public class URIUtil
                         char u = path.charAt(i + 1);
                         if (u == 'u')
                         {
-                            // TODO remove %u encoding support in jetty-10
-                            // This is wrong. This is a codepoint not a char
+                            // UTF16 encoding is only supported with UriCompliance.Violation.UTF16_ENCODINGS.
                             builder.append((char)(0xffff & TypeUtil.parseInt(path, i + 2, 4, 16)));
                             i += 5;
                         }
@@ -783,16 +795,136 @@ public class URIUtil
     }
 
     /**
-     * Convert a decoded path to a canonical form.
+     * Convert a partial URI to a canonical form.
      * <p>
-     * All instances of "." and ".." are factored out.
-     * </p>
-     * <p>
+     * All segments of "." and ".." are factored out.
      * Null is returned if the path tries to .. above its root.
      * </p>
      *
-     * @param path the path to convert, decoded, with path separators '/' and no queries.
+     * @param uri the encoded URI from the path onwards, which may contain query strings and/or fragments
      * @return the canonical path, or null if path traversal above root.
+     * @see #canonicalPath(String)
+     */
+    public static String canonicalURI(String uri)
+    {
+        if (uri == null || uri.isEmpty())
+            return uri;
+
+        boolean slash = true;
+        int end = uri.length();
+        int i = 0;
+
+        // Initially just loop looking if we may need to normalize
+        loop: while (i < end)
+        {
+            char c = uri.charAt(i);
+            switch (c)
+            {
+                case '/':
+                    slash = true;
+                    break;
+
+                case '.':
+                    if (slash)
+                        break loop;
+                    slash = false;
+                    break;
+
+                case '?':
+                case '#':
+                    // Nothing to normalize so return original path
+                    return uri;
+
+                default:
+                    slash = false;
+            }
+
+            i++;
+        }
+
+        // Nothing to normalize so return original path
+        if (i == end)
+            return uri;
+
+        // We probably need to normalize, so copy to path so far into builder
+        StringBuilder canonical = new StringBuilder(uri.length());
+        canonical.append(uri, 0, i);
+
+        // Loop looking for single and double dot segments
+        int dots = 1;
+        i++;
+        loop : while (i < end)
+        {
+            char c = uri.charAt(i);
+            switch (c)
+            {
+                case '/':
+                    if (doDotsSlash(canonical, dots))
+                        return null;
+                    slash = true;
+                    dots = 0;
+                    break;
+
+                case '?':
+                case '#':
+                    // finish normalization at a query
+                    break loop;
+
+                case '.':
+                    // Count dots only if they are leading in the segment
+                    if (dots > 0)
+                        dots++;
+                    else if (slash)
+                        dots = 1;
+                    else
+                        canonical.append('.');
+                    slash = false;
+                    break;
+
+                default:
+                    // Add leading dots to the path
+                    while (dots-- > 0)
+                        canonical.append('.');
+                    canonical.append(c);
+                    dots = 0;
+                    slash = false;
+            }
+            i++;
+        }
+
+        // process any remaining dots
+        if (doDots(canonical, dots))
+            return null;
+
+        // append any query
+        if (i < end)
+            canonical.append(uri, i, end);
+
+        return canonical.toString();
+    }
+
+    /**
+     * @param path the encoded URI from the path onwards, which may contain query strings and/or fragments
+     * @return the canonical path, or null if path traversal above root.
+     * @deprecated Use {@link #canonicalURI(String)}
+     */
+    @Deprecated
+    public static String canonicalEncodedPath(String path)
+    {
+        return canonicalURI(path);
+    }
+
+    /**
+     * Convert a decoded URI path to a canonical form.
+     * <p>
+     * All segments of "." and ".." are factored out.
+     * Null is returned if the path tries to .. above its root.
+     * </p>
+     *
+     * @param path the decoded URI path to convert. Any special characters (e.g. '?', "#") are assumed to be part of
+     * the path segments.
+     * @return the canonical path, or null if path traversal above root.
+     * @see #canonicalURI(String)
      */
     public static String canonicalPath(String path)
     {
@@ -803,8 +935,8 @@ public class URIUtil
         int end = path.length();
         int i = 0;
 
-        loop:
-        while (i < end)
+        // Initially just loop looking if we may need to normalize
+        loop: while (i < end)
         {
             char c = path.charAt(i);
             switch (c)
@@ -826,52 +958,31 @@ public class URIUtil
             i++;
         }
 
+        // Nothing to normalize so return original path
         if (i == end)
             return path;
 
+        // We probably need to normalize, so copy to path so far into builder
         StringBuilder canonical = new StringBuilder(path.length());
         canonical.append(path, 0, i);
 
+        // Loop looking for single and double dot segments
         int dots = 1;
         i++;
-        while (i <= end)
+        while (i < end)
         {
-            char c = i < end ? path.charAt(i) : '\0';
+            char c = path.charAt(i);
             switch (c)
             {
-                case '\0':
                 case '/':
-                    switch (dots)
-                    {
-                        case 0:
-                            if (c != '\0')
-                                canonical.append(c);
-                            break;
-
-                        case 1:
-                            break;
-
-                        case 2:
-                            if (canonical.length() < 2)
-                                return null;
-                            canonical.setLength(canonical.length() - 1);
-                            canonical.setLength(canonical.lastIndexOf("/") + 1);
-                            break;
-
-                        default:
-                            while (dots-- > 0)
-                            {
-                                canonical.append('.');
-                            }
-                            if (c != '\0')
-                                canonical.append(c);
-                    }
-
+                    if (doDotsSlash(canonical, dots))
+                        return null;
                     slash = true;
                     dots = 0;
                     break;
 
                 case '.':
+                    // Count dots only if they are leading in the segment
                     if (dots > 0)
                         dots++;
                     else if (slash)
@@ -882,139 +993,64 @@ public class URIUtil
                     break;
 
                 default:
+                    // Add leading dots to the path
                     while (dots-- > 0)
-                    {
                         canonical.append('.');
-                    }
                     canonical.append(c);
                     dots = 0;
                     slash = false;
             }
-
             i++;
         }
+
+        // process any remaining dots
+        if (doDots(canonical, dots))
+            return null;
+
         return canonical.toString();
     }
 
-    /**
-     * Convert a path to a cananonical form.
-     * <p>
-     * All instances of "." and ".." are factored out.
-     * </p>
-     * <p>
-     * Null is returned if the path tries to .. above its root.
-     * </p>
-     *
-     * @param path the path to convert (expects URI/URL form, encoded, and with path separators '/')
-     * @return the canonical path, or null if path traversal above root.
-     */
-    public static String canonicalEncodedPath(String path)
+    private static boolean doDots(StringBuilder canonical, int dots)
     {
-        if (path == null || path.isEmpty())
-            return path;
-
-        boolean slash = true;
-        int end = path.length();
-        int i = 0;
-
-        loop:
-        while (i < end)
+        switch (dots)
         {
-            char c = path.charAt(i);
-            switch (c)
-            {
-                case '/':
-                    slash = true;
-                    break;
-
-                case '.':
-                    if (slash)
-                        break loop;
-                    slash = false;
-                    break;
-
-                case '?':
-                    return path;
-
-                default:
-                    slash = false;
-            }
-
-            i++;
+            case 0:
+            case 1:
+                break;
+            case 2:
+                if (canonical.length() < 2)
+                    return true;
+                canonical.setLength(canonical.length() - 1);
+                canonical.setLength(canonical.lastIndexOf("/") + 1);
+                break;
+            default:
+                while (dots-- > 0)
+                    canonical.append('.');
         }
+        return false;
+    }
 
-        if (i == end)
-            return path;
-
-        StringBuilder canonical = new StringBuilder(path.length());
-        canonical.append(path, 0, i);
-
-        int dots = 1;
-        i++;
-        while (i <= end)
+    private static boolean doDotsSlash(StringBuilder canonical, int dots)
+    {
+        switch (dots)
         {
-            char c = i < end ? path.charAt(i) : '\0';
-            switch (c)
-            {
-                case '\0':
-                case '/':
-                case '?':
-                    switch (dots)
-                    {
-                        case 0:
-                            if (c != '\0')
-                                canonical.append(c);
-                            break;
-
-                        case 1:
-                            if (c == '?')
-                                canonical.append(c);
-                            break;
-
-                        case 2:
-                            if (canonical.length() < 2)
-                                return null;
-                            canonical.setLength(canonical.length() - 1);
-                            canonical.setLength(canonical.lastIndexOf("/") + 1);
-                            if (c == '?')
-                                canonical.append(c);
-                            break;
-                        default:
-                            while (dots-- > 0)
-                            {
-                                canonical.append('.');
-                            }
-                            if (c != '\0')
-                                canonical.append(c);
-                    }
-
-                    slash = true;
-                    dots = 0;
-                    break;
-
-                case '.':
-                    if (dots > 0)
-                        dots++;
-                    else if (slash)
-                        dots = 1;
-                    else
-                        canonical.append('.');
-                    slash = false;
-                    break;
-
-                default:
-                    while (dots-- > 0)
-                    {
-                        canonical.append('.');
-                    }
-                    canonical.append(c);
-                    dots = 0;
-                    slash = false;
-            }
-
-            i++;
+            case 0:
+                canonical.append('/');
+                break;
+            case 1:
+                break;
+            case 2:
+                if (canonical.length() < 2)
+                    return true;
+                canonical.setLength(canonical.length() - 1);
+                canonical.setLength(canonical.lastIndexOf("/") + 1);
+                break;
+            default:
+                while (dots-- > 0)
+                    canonical.append('.');
+                canonical.append('/');
         }
-        return canonical.toString();
+        return false;
     }
 
     /**
@@ -1106,6 +1142,50 @@ public class URIUtil
     }
 
     /**
+     * True if token is a <a href="https://www.rfc-editor.org/rfc/rfc3986">RFC3986</a> {@code reg-name} (Registered Name)
+     *
+     * @param token the to test
+     * @return true if the token passes as a valid Host Registered Name
+     */
+    public static boolean isValidHostRegisteredName(String token)
+    {
+        /* reg-name ABNF is defined as :
+         *   reg-name      = *( unreserved / pct-encoded / sub-delims )
+         *   unreserved    = ALPHA / DIGIT / "-" / "." / "_" / "~"
+         *   pct-encoded   = "%" HEXDIG HEXDIG
+         *   sub-delims    = "!" / "$" / "&" / "'" / "(" / ")"
+         *                   / "*" / "+" / "," / ";" / "="
+         */
+
+        if (token == null)
+            return true; // null token is considered valid
+
+        int length = token.length();
+        for (int i = 0; i < length; i++)
+        {
+            char c = token.charAt(i);
+            if (c > 127)
+                return false;
+            if (REGNAME_ALLOWED[c])
+                continue;
+            if (c == '%')
+            {
+                if (StringUtil.isHex(token, i + 1, 2))
+                {
+                    i += 2;
+                    continue;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Create a new URI from the arguments, handling IPv6 host encoding and default ports
      *
      * @param scheme the URI scheme
@@ -1155,11 +1235,13 @@ public class URIUtil
         {
             switch (scheme)
             {
+                case "ws":
                 case "http":
                     if (port != 80)
                         url.append(':').append(port);
                     break;
 
+                case "wss":
                 case "https":
                     if (port != 443)
                         url.append(':').append(port);
@@ -1189,11 +1271,13 @@ public class URIUtil
             {
                 switch (scheme)
                 {
+                    case "ws":
                     case "http":
                         if (port != 80)
                             url.append(':').append(port);
                         break;
 
+                    case "wss":
                     case "https":
                         if (port != 443)
                             url.append(':').append(port);
@@ -1319,6 +1403,67 @@ public class URIUtil
         encodePath(buf, path, offset);
 
         return URI.create(buf.toString());
+    }
+
+    /**
+     * Validate an IPv4 or IPv6 address.
+     * @param inetAddress the address to validate
+     * @throws IllegalArgumentException if the address is not valid
+     */
+    public static void validateInetAddress(String inetAddress)
+    {
+        try
+        {
+            InetAddress ignored = InetAddress.getByName(inetAddress);
+        }
+        catch (Throwable e)
+        {
+            throw new IllegalArgumentException("Bad [IPv6] address", e);
+        }
+    }
+
+    /**
+     * Validate and normalize the scheme,
+     *
+     * @param scheme The scheme to normalize
+     * @return The normalized version of the scheme
+     * @throws IllegalArgumentException If the scheme is not valid
+     */
+    public static String validateScheme(String scheme)
+    {
+        if (scheme == null || scheme.isEmpty())
+            throw new IllegalArgumentException("Bad scheme");
+
+        //  scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+        StringBuilder toLowerCase = null;
+        for (int i = 0; i < scheme.length(); i++)
+        {
+            char c = scheme.charAt(i);
+            if (c >= 'A' && c <= 'Z')
+            {
+                if (toLowerCase == null)
+                {
+                    toLowerCase = new StringBuilder(scheme.length());
+                    toLowerCase.append(scheme, 0, i);
+                }
+                toLowerCase.append(Character.toLowerCase(c));
+            }
+            else if (c >= 'a' && c <= 'z' ||
+                (i > 0 && (c >= '0' && c <= '9' ||
+                    c == '.' ||
+                    c == '+' ||
+                    c == '-')))
+            {
+                if (toLowerCase != null)
+                    toLowerCase.append(c);
+            }
+            else
+            {
+                throw new IllegalArgumentException("Bad scheme");
+            }
+        }
+
+        return toLowerCase == null ? scheme : toLowerCase.toString();
     }
 
     /**

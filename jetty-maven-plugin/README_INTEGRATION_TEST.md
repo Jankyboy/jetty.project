@@ -8,10 +8,6 @@ Integration tests location
 --------------------
 Test projects are located within the folder: src/it
 
-Running the tests
---------------------
-As they can be long to run, the tests do not run per default. So to run them you must activate a profile using the command line argument: ```-Prun-its``` 
-
 Running single test
 --------------------
 You can run single or set of test as well using the command line argument: ```-Dinvoker.test=it-parent-pom,jetty-run-mojo-it,jetty-run-war*-it,!jetty-run-distro*```
@@ -23,4 +19,4 @@ Running Logs
 --------------------
 The output of each Maven build will be located in /target/it/${project-name}/build.log
 
-The jetty log output for those goals that fork a new process (currently "distro" and "run-forked") can be found in /target/it/${project-name}/jetty-simple-webapp/target/jetty.out.
+The jetty log output for those goals that fork a new process (currently "home" and "run-forked") can be found in /target/it/${project-name}/jetty-simple-webapp/target/jetty.out.

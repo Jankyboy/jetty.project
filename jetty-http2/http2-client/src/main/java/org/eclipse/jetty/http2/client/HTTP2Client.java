@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -33,6 +28,7 @@ import org.eclipse.jetty.http2.FlowControlStrategy;
 import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
+import org.eclipse.jetty.http2.hpack.HpackContext;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.ClientConnectionFactory;
 import org.eclipse.jetty.io.ClientConnector;
@@ -111,13 +107,18 @@ public class HTTP2Client extends ContainerLifeCycle
     private List<String> protocols = List.of("h2");
     private int initialSessionRecvWindow = 16 * 1024 * 1024;
     private int initialStreamRecvWindow = 8 * 1024 * 1024;
-    private int maxFrameLength = Frame.DEFAULT_MAX_LENGTH;
+    private int maxFrameSize = Frame.DEFAULT_MAX_LENGTH;
     private int maxConcurrentPushedStreams = 32;
     private int maxSettingsKeys = SettingsFrame.DEFAULT_MAX_KEYS;
+    private int maxDecoderTableCapacity = HpackContext.DEFAULT_MAX_TABLE_CAPACITY;
+    private int maxEncoderTableCapacity = HpackContext.DEFAULT_MAX_TABLE_CAPACITY;
+    private int maxHeaderBlockFragment = 0;
+    private int maxResponseHeadersSize = 8 * 1024;
     private FlowControlStrategy.Factory flowControlStrategyFactory = () -> new BufferingFlowControlStrategy(0.5F);
     private long streamIdleTimeout;
     private boolean useInputDirectByteBuffers = true;
     private boolean useOutputDirectByteBuffers = true;
+    private boolean isUseALPN = true;
 
     public HTTP2Client()
     {
@@ -284,15 +285,27 @@ public class HTTP2Client extends ContainerLifeCycle
         this.initialStreamRecvWindow = initialStreamRecvWindow;
     }
 
-    @ManagedAttribute("The max frame length in bytes")
+    @Deprecated
     public int getMaxFrameLength()
     {
-        return maxFrameLength;
+        return getMaxFrameSize();
     }
 
-    public void setMaxFrameLength(int maxFrameLength)
+    @Deprecated
+    public void setMaxFrameLength(int maxFrameSize)
     {
-        this.maxFrameLength = maxFrameLength;
+        setMaxFrameSize(maxFrameSize);
+    }
+
+    @ManagedAttribute("The max frame size in bytes")
+    public int getMaxFrameSize()
+    {
+        return maxFrameSize;
+    }
+
+    public void setMaxFrameSize(int maxFrameSize)
+    {
+        this.maxFrameSize = maxFrameSize;
     }
 
     @ManagedAttribute("The max number of concurrent pushed streams")
@@ -317,6 +330,68 @@ public class HTTP2Client extends ContainerLifeCycle
         this.maxSettingsKeys = maxSettingsKeys;
     }
 
+    @ManagedAttribute("The HPACK encoder dynamic table maximum capacity")
+    public int getMaxEncoderTableCapacity()
+    {
+        return maxEncoderTableCapacity;
+    }
+
+    /**
+     * <p>Sets the limit for the encoder HPACK dynamic table capacity.</p>
+     * <p>Setting this value to {@code 0} disables the use of the dynamic table.</p>
+     *
+     * @param maxEncoderTableCapacity The HPACK encoder dynamic table maximum capacity
+     */
+    public void setMaxEncoderTableCapacity(int maxEncoderTableCapacity)
+    {
+        this.maxEncoderTableCapacity = maxEncoderTableCapacity;
+    }
+
+    @ManagedAttribute("The HPACK decoder dynamic table maximum capacity")
+    public int getMaxDecoderTableCapacity()
+    {
+        return maxDecoderTableCapacity;
+    }
+
+    public void setMaxDecoderTableCapacity(int maxDecoderTableCapacity)
+    {
+        this.maxDecoderTableCapacity = maxDecoderTableCapacity;
+    }
+
+    @Deprecated
+    public int getMaxDynamicTableSize()
+    {
+        return getMaxDecoderTableCapacity();
+    }
+
+    @Deprecated
+    public void setMaxDynamicTableSize(int maxTableSize)
+    {
+        setMaxDecoderTableCapacity(maxTableSize);
+    }
+
+    @ManagedAttribute("The max size of header block fragments")
+    public int getMaxHeaderBlockFragment()
+    {
+        return maxHeaderBlockFragment;
+    }
+
+    public void setMaxHeaderBlockFragment(int maxHeaderBlockFragment)
+    {
+        this.maxHeaderBlockFragment = maxHeaderBlockFragment;
+    }
+
+    @ManagedAttribute("The max size of response headers")
+    public int getMaxResponseHeadersSize()
+    {
+        return maxResponseHeadersSize;
+    }
+
+    public void setMaxResponseHeadersSize(int maxResponseHeadersSize)
+    {
+        this.maxResponseHeadersSize = maxResponseHeadersSize;
+    }
+
     @ManagedAttribute("Whether to use direct ByteBuffers for reading")
     public boolean isUseInputDirectByteBuffers()
     {
@@ -337,6 +412,17 @@ public class HTTP2Client extends ContainerLifeCycle
     public void setUseOutputDirectByteBuffers(boolean useOutputDirectByteBuffers)
     {
         this.useOutputDirectByteBuffers = useOutputDirectByteBuffers;
+    }
+
+    @ManagedAttribute(value = "Whether ALPN should be used when establishing connections")
+    public boolean isUseALPN()
+    {
+        return isUseALPN;
+    }
+
+    public void setUseALPN(boolean useALPN)
+    {
+        isUseALPN = useALPN;
     }
 
     public CompletableFuture<Session> connect(SocketAddress address, Session.Listener listener)
@@ -404,8 +490,9 @@ public class HTTP2Client extends ContainerLifeCycle
         ClientConnectionFactory factory = new HTTP2ClientConnectionFactory();
         if (sslContextFactory != null)
         {
-            ALPNClientConnectionFactory alpn = new ALPNClientConnectionFactory(getExecutor(), factory, getProtocols());
-            factory = new SslClientConnectionFactory(sslContextFactory, getByteBufferPool(), getExecutor(), alpn);
+            if (isUseALPN())
+                factory = new ALPNClientConnectionFactory(getExecutor(), factory, getProtocols());
+            factory = new SslClientConnectionFactory(sslContextFactory, getByteBufferPool(), getExecutor(), factory);
         }
         return factory;
     }

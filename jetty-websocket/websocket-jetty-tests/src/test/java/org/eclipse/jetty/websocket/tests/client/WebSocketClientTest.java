@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -25,13 +20,17 @@ import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import javax.servlet.DispatcherType;
 
+import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.HttpClientTransport;
+import org.eclipse.jetty.client.http.HttpClientTransportOverHTTP;
+import org.eclipse.jetty.io.ClientConnector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -50,11 +49,12 @@ import org.eclipse.jetty.websocket.tests.ConnectMessageEndpoint;
 import org.eclipse.jetty.websocket.tests.EchoSocket;
 import org.eclipse.jetty.websocket.tests.ParamsEndpoint;
 import org.eclipse.jetty.websocket.tests.util.FutureWriteCallback;
-import org.eclipse.jetty.websocket.util.server.WebSocketUpgradeFilter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -63,6 +63,8 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class WebSocketClientTest
@@ -104,10 +106,7 @@ public class WebSocketClientTest
                 configuration.addMapping("/get-params", (req, resp) -> new ParamsEndpoint());
             });
 
-        context.addFilter(WebSocketUpgradeFilter.class, "/*", EnumSet.of(DispatcherType.REQUEST));
-
         server.setHandler(context);
-
         server.start();
     }
 
@@ -121,6 +120,65 @@ public class WebSocketClientTest
     public void stopServer() throws Exception
     {
         server.stop();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testCustomizeExecutorDirectly(boolean startHttpClient) throws Exception
+    {
+        Executor executor = Executors.newFixedThreadPool(50);
+        HttpClient httpClient = new HttpClient();
+        httpClient.setExecutor(executor);
+        try
+        {
+            if (startHttpClient)
+                httpClient.start();
+            WebSocketClient webSocketClient = new WebSocketClient(httpClient);
+            try
+            {
+                webSocketClient.start();
+                Executor wsExecutor = webSocketClient.getExecutor();
+                assertSame(executor, wsExecutor);
+            }
+            finally
+            {
+                webSocketClient.stop();
+            }
+        }
+        finally
+        {
+            httpClient.stop();
+        }
+    }
+
+    @Test
+    public void testCustomizeExecutorViaConnector() throws Exception
+    {
+        ClientConnector clientConnector = new ClientConnector();
+        clientConnector.setSelectors(1);
+        Executor executor = Executors.newFixedThreadPool(50);
+        clientConnector.setExecutor(executor);
+        HttpClientTransport transport = new HttpClientTransportOverHTTP(clientConnector);
+        HttpClient httpClient = new HttpClient(transport);
+        try
+        {
+            httpClient.start();
+            WebSocketClient webSocketClient = new WebSocketClient(httpClient);
+            try
+            {
+                webSocketClient.start();
+                Executor inuseExecutor = webSocketClient.getExecutor();
+                assertSame(executor, inuseExecutor);
+            }
+            finally
+            {
+                webSocketClient.stop();
+            }
+        }
+        finally
+        {
+            httpClient.stop();
+        }
     }
 
     @Test
@@ -248,6 +306,7 @@ public class WebSocketClientTest
             assertThat("Message", received, containsString("Hello World"));
 
             ByteBuffer bufReceived = cliSock.binaryMessageQueue.poll(5, TimeUnit.SECONDS);
+            assertNotNull(bufReceived);
             received = BufferUtil.toUTF8String(bufReceived.slice());
             assertThat("Message", received, containsString(parts[0] + parts[1] + parts[2]));
         }
@@ -322,7 +381,7 @@ public class WebSocketClientTest
         request.setSubProtocols("echo");
         Future<Session> future = client.connect(cliSock, wsUri, request);
 
-        try (Session sess = future.get(5, TimeUnit.SECONDS))
+        try (Session ignored = future.get(5, TimeUnit.SECONDS))
         {
             Assertions.assertTrue(cliSock.openLatch.await(1, TimeUnit.SECONDS));
 
@@ -343,7 +402,7 @@ public class WebSocketClientTest
     }
 
     /**
-     * Ensure that <code>@WebSocket(maxTextMessageSize = 100*1024)</code> behaves as expected.
+     * Ensure that {@code @WebSocket(maxTextMessageSize = 100*1024)} behaves as expected.
      *
      * @throws Exception on test failure
      */
@@ -374,6 +433,7 @@ public class WebSocketClientTest
 
             // wait for message from server
             String received = cliSock.messageQueue.poll(5, TimeUnit.SECONDS);
+            assertNotNull(received);
             assertThat("Message", received.length(), is(size));
         }
     }
@@ -398,9 +458,9 @@ public class WebSocketClientTest
             Map<String, List<String>> parameterMap = req.getParameterMap();
             assertThat("Parameter Map", parameterMap, notNullValue());
 
-            assertThat("Parameter[snack]", parameterMap.get("snack"), is(Arrays.asList(new String[]{"cashews"})));
-            assertThat("Parameter[amount]", parameterMap.get("amount"), is(Arrays.asList(new String[]{"handful"})));
-            assertThat("Parameter[brand]", parameterMap.get("brand"), is(Arrays.asList(new String[]{"off"})));
+            assertThat("Parameter[snack]", parameterMap.get("snack"), is(List.of("cashews")));
+            assertThat("Parameter[amount]", parameterMap.get("amount"), is(List.of("handful")));
+            assertThat("Parameter[brand]", parameterMap.get("brand"), is(List.of("off")));
 
             assertThat("Parameter[cost]", parameterMap.get("cost"), nullValue());
 

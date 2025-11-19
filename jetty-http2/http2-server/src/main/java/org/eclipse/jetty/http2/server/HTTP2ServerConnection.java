@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -27,14 +22,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpMethod;
-import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http.MetaData.Request;
 import org.eclipse.jetty.http2.ErrorCode;
@@ -51,8 +44,8 @@ import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.http2.parser.ServerParser;
 import org.eclipse.jetty.http2.parser.SettingsBodyParser;
-import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.RetainableByteBufferPool;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.util.BufferUtil;
@@ -60,7 +53,7 @@ import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.thread.AutoLock;
 
-public class HTTP2ServerConnection extends HTTP2Connection
+public class HTTP2ServerConnection extends HTTP2Connection implements ServerParser.Listener
 {
     /**
      * @param protocol An HTTP2 protocol variant
@@ -89,35 +82,15 @@ public class HTTP2ServerConnection extends HTTP2Connection
     private final AutoLock lock = new AutoLock();
     private final Queue<HttpChannelOverHTTP2> channels = new ArrayDeque<>();
     private final List<Frame> upgradeFrames = new ArrayList<>();
-    private final AtomicLong totalRequests = new AtomicLong();
-    private final AtomicLong totalResponses = new AtomicLong();
     private final ServerSessionListener listener;
     private final HttpConfiguration httpConfig;
     private boolean recycleHttpChannels = true;
 
-    public HTTP2ServerConnection(ByteBufferPool byteBufferPool, Executor executor, EndPoint endPoint, HttpConfiguration httpConfig, ServerParser parser, ISession session, int inputBufferSize, ServerSessionListener listener)
+    public HTTP2ServerConnection(RetainableByteBufferPool retainableByteBufferPool, Executor executor, EndPoint endPoint, HttpConfiguration httpConfig, HTTP2ServerSession session, int inputBufferSize, ServerSessionListener listener)
     {
-        super(byteBufferPool, executor, endPoint, parser, session, inputBufferSize);
+        super(retainableByteBufferPool, executor, endPoint, session, inputBufferSize);
         this.listener = listener;
         this.httpConfig = httpConfig;
-    }
-
-    @Override
-    public long getMessagesIn()
-    {
-        return totalRequests.get();
-    }
-
-    @Override
-    public long getMessagesOut()
-    {
-        return totalResponses.get();
-    }
-
-    @Override
-    protected ServerParser getParser()
-    {
-        return (ServerParser)super.getParser();
     }
 
     public boolean isRecycleHttpChannels()
@@ -153,6 +126,12 @@ public class HTTP2ServerConnection extends HTTP2Connection
         {
             LOG.info("Failure while notifying listener {}", listener, x);
         }
+    }
+
+    @Override
+    public void onPreface()
+    {
+        ((HTTP2ServerSession)getSession()).onPreface();
     }
 
     public void onNewStream(Connector connector, IStream stream, HeadersFrame frame)
@@ -236,7 +215,7 @@ public class HTTP2ServerConnection extends HTTP2Connection
                 .map(HTTP2Channel.Server::isIdle)
                 .reduce(true, Boolean::logicalAnd);
         if (LOG.isDebugEnabled())
-            LOG.debug("{} idle timeout on {}: {}", result ? "Processed" : "Ignored", session, failure);
+            LOG.debug("{} idle timeout on {}", result ? "Processed" : "Ignored", session, failure);
         return result;
     }
 
@@ -315,7 +294,7 @@ public class HTTP2ServerConnection extends HTTP2Connection
     {
         if (HttpMethod.PRI.is(request.getMethod()))
         {
-            getParser().directUpgrade();
+            ((HTTP2ServerSession)getSession()).directUpgrade();
         }
         else
         {
@@ -338,7 +317,7 @@ public class HTTP2ServerConnection extends HTTP2Connection
             responseFields.put(HttpHeader.UPGRADE, "h2c");
             responseFields.put(HttpHeader.CONNECTION, "Upgrade");
 
-            getParser().standardUpgrade();
+            ((HTTP2ServerSession)getSession()).standardUpgrade();
 
             // We fake that we received a client preface, so that we can send the
             // server preface as the first HTTP/2 frame as required by the spec.
@@ -360,13 +339,6 @@ public class HTTP2ServerConnection extends HTTP2Connection
         }
 
         @Override
-        public Runnable onRequest(HeadersFrame frame)
-        {
-            totalRequests.incrementAndGet();
-            return super.onRequest(frame);
-        }
-
-        @Override
         protected boolean checkAndPrepareUpgrade()
         {
             return isTunnel() && getHttpTransport().prepareUpgrade();
@@ -376,14 +348,13 @@ public class HTTP2ServerConnection extends HTTP2Connection
         public void onCompleted()
         {
             super.onCompleted();
-            totalResponses.incrementAndGet();
             if (!getStream().isReset() && !isTunnel())
                 recycle();
         }
 
         private boolean isTunnel()
         {
-            return HttpMethod.CONNECT.is(getRequest().getMethod()) && getResponse().getStatus() == HttpStatus.OK_200;
+            return MetaData.isTunnel(getRequest().getMethod(), getResponse().getStatus());
         }
 
         @Override

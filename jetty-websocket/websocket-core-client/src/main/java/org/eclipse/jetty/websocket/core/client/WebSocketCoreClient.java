@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -24,6 +19,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.util.DecoratedObjectFactory;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.websocket.core.CoreSession;
@@ -31,6 +27,7 @@ import org.eclipse.jetty.websocket.core.ExtensionConfig;
 import org.eclipse.jetty.websocket.core.FrameHandler;
 import org.eclipse.jetty.websocket.core.WebSocketComponents;
 import org.eclipse.jetty.websocket.core.WebSocketExtensionRegistry;
+import org.eclipse.jetty.websocket.core.client.internal.HttpClientProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,15 +36,9 @@ public class WebSocketCoreClient extends ContainerLifeCycle
     public static final String WEBSOCKET_CORECLIENT_ATTRIBUTE = WebSocketCoreClient.class.getName();
 
     private static final Logger LOG = LoggerFactory.getLogger(WebSocketCoreClient.class);
-    private final HttpClient httpClient;
+    private final HttpClient client;
     private final WebSocketComponents components;
-
-    // TODO: Things to consider for inclusion in this class (or removal if they can be set elsewhere, like HttpClient)
-    // - AsyncWrite Idle Timeout
-    // - Bind Address
-    // - SslContextFactory setup
-    // - Connect Timeout
-    // - Cookie Store
+    private ClassLoader classLoader;
 
     public WebSocketCoreClient()
     {
@@ -61,12 +52,35 @@ public class WebSocketCoreClient extends ContainerLifeCycle
 
     public WebSocketCoreClient(HttpClient httpClient, WebSocketComponents webSocketComponents)
     {
-        if (httpClient == null)
-            httpClient = Objects.requireNonNull(HttpClientProvider.get());
+        client = Objects.requireNonNullElse(httpClient, HttpClientProvider.get());
+        addBean(client);
+        if (webSocketComponents == null)
+        {
+            if (client.isStarted())
+                webSocketComponents = new WebSocketComponents(null, null, client.getByteBufferPool(), null, null, client.getExecutor());
+            else
+                webSocketComponents = new WebSocketComponents();
+        }
+        components = webSocketComponents;
+        addBean(components);
+        if (!client.isStarted())
+        {
+            if (client.getByteBufferPool() == null)
+                client.setByteBufferPool(components.getBufferPool());
+            if (client.getExecutor() == null)
+                client.setExecutor(components.getExecutor());
+        }
+        classLoader = Thread.currentThread().getContextClassLoader();
+    }
 
-        this.httpClient = httpClient;
-        this.components = webSocketComponents;
-        addBean(httpClient);
+    public ClassLoader getClassLoader()
+    {
+        return classLoader;
+    }
+
+    public void setClassLoader(ClassLoader classLoader)
+    {
+        this.classLoader = Objects.requireNonNull(classLoader);
     }
 
     public CompletableFuture<CoreSession> connect(FrameHandler frameHandler, URI wsUri) throws IOException
@@ -89,6 +103,11 @@ public class WebSocketCoreClient extends ContainerLifeCycle
             }
         }
 
+        for (Request.Listener l : getBeans(Request.Listener.class))
+        {
+            request.listener(l);
+        }
+
         if (LOG.isDebugEnabled())
             LOG.debug("connect to websocket {}", request.getURI());
 
@@ -102,7 +121,7 @@ public class WebSocketCoreClient extends ContainerLifeCycle
 
     public HttpClient getHttpClient()
     {
-        return httpClient;
+        return client;
     }
 
     public DecoratedObjectFactory getObjectFactory()

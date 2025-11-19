@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -32,31 +27,31 @@ import java.util.stream.Collectors;
 import org.eclipse.jetty.deploy.App;
 import org.eclipse.jetty.deploy.AppProvider;
 import org.eclipse.jetty.deploy.DeploymentManager;
+import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.util.Scanner;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.annotation.ManagedOperation;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
+import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- *
- */
 @ManagedObject("Abstract Provider for loading webapps")
 public abstract class ScanningAppProvider extends ContainerLifeCycle implements AppProvider
 {
     private static final Logger LOG = LoggerFactory.getLogger(ScanningAppProvider.class);
 
-    private Map<String, App> _appMap = new HashMap<String, App>();
+    private final Map<String, App> _appMap = new HashMap<>();
 
     private DeploymentManager _deploymentManager;
-    protected FilenameFilter _filenameFilter;
+    private FilenameFilter _filenameFilter;
     private final List<Resource> _monitored = new CopyOnWriteArrayList<>();
-    private boolean _recursive = false;
     private int _scanInterval = 10;
     private Scanner _scanner;
+    private boolean _useRealPaths;
+    private boolean _deferInitialScan = false;
 
     private final Scanner.DiscreteListener _scannerListener = new Scanner.DiscreteListener()
     {
@@ -88,6 +83,22 @@ public abstract class ScanningAppProvider extends ContainerLifeCycle implements 
     {
         _filenameFilter = filter;
         addBean(_appMap);
+    }
+
+    /**
+     * @return True if the real path of the scanned files should be used for deployment.
+     */
+    public boolean isUseRealPaths()
+    {
+        return _useRealPaths;
+    }
+
+    /**
+     * @param useRealPaths True if the real path of the scanned files should be used for deployment.
+     */
+    public void setUseRealPaths(boolean useRealPaths)
+    {
+        _useRealPaths = useRealPaths;
     }
 
     protected void setFilenameFilter(FilenameFilter filter)
@@ -137,16 +148,36 @@ public abstract class ScanningAppProvider extends ContainerLifeCycle implements 
                 LOG.warn("Does not exist: {}", resource);
         }
 
-        _scanner = new Scanner();
+        _scanner = new Scanner(null, _useRealPaths);
         _scanner.setScanDirs(files);
         _scanner.setScanInterval(_scanInterval);
-        _scanner.setRecursive(_recursive);
         _scanner.setFilenameFilter(_filenameFilter);
         _scanner.setReportDirs(true);
         _scanner.setScanDepth(1); //consider direct dir children of monitored dir
         _scanner.addListener(_scannerListener);
-
+        _scanner.setReportExistingFilesOnStartup(true);
+        _scanner.setAutoStartScanning(!_deferInitialScan);
         addBean(_scanner);
+
+        if (isDeferInitialScan())
+        {
+            // Setup listener to wait for Server in STARTED state, which
+            // triggers the first scan of the monitored directories
+            getDeploymentManager().getServer().addEventListener(
+                new LifeCycle.Listener()
+                {
+                    @Override
+                    public void lifeCycleStarted(LifeCycle event)
+                    {
+                        if (event instanceof Server)
+                        {
+                            if (LOG.isDebugEnabled())
+                                LOG.debug("Triggering Deferred Scan of {}", _monitored);
+                            _scanner.startScanning();
+                        }
+                    }
+                });
+        }
 
         super.doStart();
     }
@@ -237,12 +268,6 @@ public abstract class ScanningAppProvider extends ContainerLifeCycle implements 
         return _scanInterval;
     }
 
-    @ManagedAttribute("recursive scanning supported")
-    public boolean isRecursive()
-    {
-        return _recursive;
-    }
-
     @Override
     public void setDeploymentManager(DeploymentManager deploymentManager)
     {
@@ -295,9 +320,32 @@ public abstract class ScanningAppProvider extends ContainerLifeCycle implements 
         }
     }
 
-    protected void setRecursive(boolean recursive)
+    /**
+     * Test if initial scan should be deferred.
+     *
+     * @return true if initial scan is deferred, false to have initial scan occur on startup of ScanningAppProvider.
+     */
+    public boolean isDeferInitialScan()
     {
-        _recursive = recursive;
+        return _deferInitialScan;
+    }
+
+    /**
+     * Flag to control initial scan behavior.
+     *
+     * <ul>
+     *     <li>{@code true} - to have initial scan deferred until the {@link Server} component
+     *     has reached it's STARTED state.<br>
+     *     Note: any failures in a deploy will not fail the Server startup in this mode.</li>
+     *     <li>{@code false} - (default value) to have initial scan occur as normal on
+     *     ScanningAppProvider startup.</li>
+     * </ul>
+     *
+     * @param defer true to defer initial scan, false to have initial scan occur on startup of ScanningAppProvider.
+     */
+    public void setDeferInitialScan(boolean defer)
+    {
+        _deferInitialScan = defer;
     }
 
     public void setScanInterval(int scanInterval)
@@ -312,7 +360,7 @@ public abstract class ScanningAppProvider extends ContainerLifeCycle implements 
             getMonitoredResources().stream().map((r) -> r.getURI().toASCIIString())
                 .collect(Collectors.joining(", ", "[", "]"))
         );
-        _scanner.scan();
+        _scanner.nudge();
     }
 
     @Override

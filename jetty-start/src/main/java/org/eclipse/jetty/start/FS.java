@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -21,11 +16,20 @@ package org.eclipse.jetty.start;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystemAlreadyExistsException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class FS
 {
@@ -167,5 +171,80 @@ public class FS
     public static Path toRealPath(Path path) throws IOException
     {
         return path.toRealPath();
+    }
+
+    public static void extract(Path archive, Path destination) throws IOException
+    {
+        String filename = archive.getFileName().toString().toLowerCase(Locale.US);
+
+        if (filename.endsWith(".jar") || filename.endsWith(".zip"))
+        {
+            extractZip(archive, destination);
+        }
+        else
+        {
+            throw new IOException("Unable to extract unsupported archive format: " + archive);
+        }
+    }
+
+    public static void extractZip(Path archive, Path destination) throws IOException
+    {
+        StartLog.info("extract %s to %s", archive, destination);
+        URI jaruri = URI.create("jar:" + archive.toUri());
+        Map<String, ?> fsEnv = Map.of();
+        try (FileSystem zipFs = FileSystems.newFileSystem(jaruri, fsEnv))
+        {
+            copyZipContents(zipFs.getPath("/"), destination);
+        }
+        catch (FileSystemAlreadyExistsException e)
+        {
+            FileSystem zipFs = FileSystems.getFileSystem(jaruri);
+            copyZipContents(zipFs.getPath("/"), destination);
+        }
+    }
+
+    public static void copyZipContents(Path root, Path destination) throws IOException
+    {
+        if (!Files.exists(destination))
+        {
+            Files.createDirectories(destination);
+        }
+        URI outputDirURI = destination.toUri();
+        URI archiveURI = root.toUri();
+        int archiveURISubIndex = archiveURI.toASCIIString().indexOf("!/") + 2;
+
+        try (Stream<Path> entriesStream = Files.walk(root))
+        {
+            // ensure proper unpack order (eg: directories before files)
+            Stream<Path> sorted = entriesStream
+                .filter((path) -> path.getNameCount() > 0)
+                .filter((path) -> !path.getName(0).toString().equalsIgnoreCase("META-INF"))
+                .sorted();
+
+            Iterator<Path> pathIterator = sorted.iterator();
+            while (pathIterator.hasNext())
+            {
+                Path path = pathIterator.next();
+                URI entryURI = path.toUri();
+                String subURI = entryURI.toASCIIString().substring(archiveURISubIndex);
+                URI outputPathURI = outputDirURI.resolve(subURI);
+                Path outputPath = Path.of(outputPathURI);
+                StartLog.info("zipFs: %s > %s", path, outputPath);
+                if (Files.isDirectory(path))
+                {
+                    if (!Files.exists(outputPath))
+                        Files.createDirectory(outputPath);
+                }
+                else if (Files.exists(outputPath))
+                {
+                    StartLog.debug("skipping extraction (file exists) %s", outputPath);
+                }
+                else
+                {
+                    StartLog.info("extracting %s to %s", path, outputPath);
+                    Files.copy(path, outputPath);
+                }
+            }
+        }
     }
 }

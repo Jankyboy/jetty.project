@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -45,7 +41,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
-import org.eclipse.jetty.http.tools.HttpTester;
+import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.security.authentication.BasicAuthenticator;
 import org.eclipse.jetty.security.authentication.DigestAuthenticator;
 import org.eclipse.jetty.security.authentication.FormAuthenticator;
@@ -59,11 +55,13 @@ import org.eclipse.jetty.server.UserIdentity;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.HandlerWrapper;
+import org.eclipse.jetty.server.session.Session;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.security.Constraint;
 import org.eclipse.jetty.util.security.Password;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,14 +71,17 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ConstraintTest
@@ -90,17 +91,27 @@ public class ConstraintTest
     private LocalConnector _connector;
     private ConstraintSecurityHandler _security;
     private HttpConfiguration _config;
+    private ContextHandler _contextHandler;
+    private SessionHandler _sessionhandler;
+    private Constraint _forbidConstraint;
+    private Constraint _authAnyRoleConstraint;
+    private Constraint _authAdminConstraint;
+    private Constraint _relaxConstraint;
+    private Constraint _loginPageConstraint;
+    private Constraint _noAuthConstraint;
+    private Constraint _confidentialDataConstraint;
+    private Constraint _anyUserAuthConstraint;
 
     @BeforeEach
-    public void startServer()
+    public void setupServer()
     {
         _server = new Server();
         _connector = new LocalConnector(_server);
         _config = _connector.getConnectionFactory(HttpConnectionFactory.class).getHttpConfiguration();
         _server.setConnectors(new Connector[]{_connector});
 
-        ContextHandler contextHandler = new ContextHandler();
-        SessionHandler sessionHandler = new SessionHandler();
+        _contextHandler = new ContextHandler();
+        _sessionhandler = new SessionHandler();
 
         TestLoginService loginService = new TestLoginService(TEST_REALM);
 
@@ -109,16 +120,17 @@ public class ConstraintTest
         loginService.putUser("user2", new Password("password"), new String[]{"user"});
         loginService.putUser("admin", new Password("password"), new String[]{"user", "administrator"});
         loginService.putUser("user3", new Password("password"), new String[]{"foo"});
+        loginService.putUser("user4", new Password("password"), new String[]{"A", "B", "C", "D"});
 
-        contextHandler.setContextPath("/ctx");
-        _server.setHandler(contextHandler);
-        contextHandler.setHandler(sessionHandler);
+        _contextHandler.setContextPath("/ctx");
+        _server.setHandler(_contextHandler);
+        _contextHandler.setHandler(_sessionhandler);
 
         _server.addBean(loginService);
 
         _security = new ConstraintSecurityHandler();
-        sessionHandler.setHandler(_security);
-        RequestHandler requestHandler = new RequestHandler();
+        _sessionhandler.setHandler(_security);
+        RequestHandler requestHandler = new RequestHandler(new String[]{"user", "user4"}, new String[]{"user", "foo"});
         _security.setHandler(requestHandler);
 
         _security.setConstraintMappings(getConstraintMappings(), getKnownRoles());
@@ -135,106 +147,331 @@ public class ConstraintTest
         Set<String> knownRoles = new HashSet<>();
         knownRoles.add("user");
         knownRoles.add("administrator");
-
+        knownRoles.add("A");
+        knownRoles.add("B");
+        knownRoles.add("C");
+        knownRoles.add("D");
         return knownRoles;
     }
 
     private List<ConstraintMapping> getConstraintMappings()
     {
-        Constraint constraint0 = new Constraint();
-        constraint0.setAuthenticate(true);
-        constraint0.setName("forbid");
+        _forbidConstraint = new Constraint();
+        _forbidConstraint.setAuthenticate(true);
+        _forbidConstraint.setName("forbid");
         ConstraintMapping mapping0 = new ConstraintMapping();
         mapping0.setPathSpec("/forbid/*");
-        mapping0.setConstraint(constraint0);
+        mapping0.setConstraint(_forbidConstraint);
 
-        Constraint constraint1 = new Constraint();
-        constraint1.setAuthenticate(true);
-        constraint1.setName("auth");
-        constraint1.setRoles(new String[]{Constraint.ANY_ROLE});
+        _authAnyRoleConstraint = new Constraint();
+        _authAnyRoleConstraint.setAuthenticate(true);
+        _authAnyRoleConstraint.setName("auth");
+        _authAnyRoleConstraint.setRoles(new String[]{Constraint.ANY_ROLE});
         ConstraintMapping mapping1 = new ConstraintMapping();
         mapping1.setPathSpec("/auth/*");
-        mapping1.setConstraint(constraint1);
+        mapping1.setConstraint(_authAnyRoleConstraint);
 
-        Constraint constraint2 = new Constraint();
-        constraint2.setAuthenticate(true);
-        constraint2.setName("admin");
-        constraint2.setRoles(new String[]{"administrator"});
+        _authAdminConstraint = new Constraint();
+        _authAdminConstraint.setAuthenticate(true);
+        _authAdminConstraint.setName("admin");
+        _authAdminConstraint.setRoles(new String[]{"administrator"});
         ConstraintMapping mapping2 = new ConstraintMapping();
         mapping2.setPathSpec("/admin/*");
-        mapping2.setConstraint(constraint2);
+        mapping2.setConstraint(_authAdminConstraint);
         mapping2.setMethod("GET");
+        ConstraintMapping mapping2o = new ConstraintMapping();
+        mapping2o.setPathSpec("/admin/*");
+        mapping2o.setConstraint(_forbidConstraint);
+        mapping2o.setMethodOmissions(new String[]{"GET"});
 
-        Constraint constraint3 = new Constraint();
-        constraint3.setAuthenticate(false);
-        constraint3.setName("relax");
+        _relaxConstraint = new Constraint();
+        _relaxConstraint.setAuthenticate(false);
+        _relaxConstraint.setName("relax");
         ConstraintMapping mapping3 = new ConstraintMapping();
         mapping3.setPathSpec("/admin/relax/*");
-        mapping3.setConstraint(constraint3);
+        mapping3.setConstraint(_relaxConstraint);
 
-        Constraint constraint4 = new Constraint();
-        constraint4.setAuthenticate(true);
-        constraint4.setName("loginpage");
-        constraint4.setRoles(new String[]{"administrator"});
+        _loginPageConstraint = new Constraint();
+        _loginPageConstraint.setAuthenticate(true);
+        _loginPageConstraint.setName("loginpage");
+        _loginPageConstraint.setRoles(new String[]{"administrator"});
         ConstraintMapping mapping4 = new ConstraintMapping();
         mapping4.setPathSpec("/testLoginPage");
-        mapping4.setConstraint(constraint4);
+        mapping4.setConstraint(_loginPageConstraint);
 
-        Constraint constraint5 = new Constraint();
-        constraint5.setAuthenticate(false);
-        constraint5.setName("allow forbidden POST");
+        _noAuthConstraint = new Constraint();
+        _noAuthConstraint.setAuthenticate(false);
+        _noAuthConstraint.setName("allow forbidden");
         ConstraintMapping mapping5 = new ConstraintMapping();
         mapping5.setPathSpec("/forbid/post");
-        mapping5.setConstraint(constraint5);
+        mapping5.setConstraint(_noAuthConstraint);
         mapping5.setMethod("POST");
+        ConstraintMapping mapping5o = new ConstraintMapping();
+        mapping5o.setPathSpec("/forbid/post");
+        mapping5o.setConstraint(_forbidConstraint);
+        mapping5o.setMethodOmissions(new String[]{"POST"});
 
-        Constraint constraint6 = new Constraint();
-        constraint6.setAuthenticate(false);
-        constraint6.setName("data constraint");
-        constraint6.setDataConstraint(2);
+        _confidentialDataConstraint = new Constraint();
+        _confidentialDataConstraint.setAuthenticate(false);
+        _confidentialDataConstraint.setName("data constraint");
+        _confidentialDataConstraint.setDataConstraint(Constraint.DC_CONFIDENTIAL);
         ConstraintMapping mapping6 = new ConstraintMapping();
         mapping6.setPathSpec("/data/*");
-        mapping6.setConstraint(constraint6);
+        mapping6.setConstraint(_confidentialDataConstraint);
 
-        Constraint constraint7 = new Constraint();
-        constraint7.setAuthenticate(true);
-        constraint7.setName("** constraint");
-        constraint7.setRoles(new String[]{
+        _anyUserAuthConstraint = new Constraint();
+        _anyUserAuthConstraint.setAuthenticate(true);
+        _anyUserAuthConstraint.setName("** constraint");
+        _anyUserAuthConstraint.setRoles(new String[]{
             Constraint.ANY_AUTH, "user"
         }); //the "user" role is superfluous once ** has been defined
         ConstraintMapping mapping7 = new ConstraintMapping();
         mapping7.setPathSpec("/starstar/*");
-        mapping7.setConstraint(constraint7);
+        mapping7.setConstraint(_anyUserAuthConstraint);
 
-        return Arrays.asList(mapping0, mapping1, mapping2, mapping3, mapping4, mapping5, mapping6, mapping7);
+        return Arrays.asList(mapping0, mapping1, mapping2, mapping2o, mapping3, mapping4, mapping5, mapping5o, mapping6, mapping7);
     }
 
     @Test
-    public void testConstraints() throws Exception
+    public void testCombiningConstraints() throws Exception
     {
-        List<ConstraintMapping> mappings = new ArrayList<>(_security.getConstraintMappings());
+        String getString = "GET /ctx/test/info HTTP/1.0";
+        String requestString = getString + "\r\n\r\n";
+        String forbiddenString = "HTTP/1.1 403 Forbidden";
 
-        assertTrue(mappings.get(0).getConstraint().isForbidden());
-        assertFalse(mappings.get(1).getConstraint().isForbidden());
-        assertFalse(mappings.get(2).getConstraint().isForbidden());
-        assertFalse(mappings.get(3).getConstraint().isForbidden());
+        _security.setAuthenticator(new BasicAuthenticator());
 
-        assertFalse(mappings.get(0).getConstraint().isAnyRole());
-        assertTrue(mappings.get(1).getConstraint().isAnyRole());
-        assertFalse(mappings.get(2).getConstraint().isAnyRole());
-        assertFalse(mappings.get(3).getConstraint().isAnyRole());
+        //an auth-constraint with role *
+        Constraint authAnyRoleConstraint = new Constraint();
+        authAnyRoleConstraint.setAuthenticate(true);
+        authAnyRoleConstraint.setName("anyAuth");
+        authAnyRoleConstraint.setRoles(new String[]{Constraint.ANY_ROLE});
+        ConstraintMapping starMapping = new ConstraintMapping();
+        starMapping.setPathSpec("/test/*");
+        starMapping.setConstraint(authAnyRoleConstraint);
 
-        assertFalse(mappings.get(0).getConstraint().hasRole("administrator"));
-        assertTrue(mappings.get(1).getConstraint().hasRole("administrator"));
-        assertTrue(mappings.get(2).getConstraint().hasRole("administrator"));
-        assertFalse(mappings.get(3).getConstraint().hasRole("administrator"));
+        //an auth-constraint with role **
+        Constraint authAnyAuthConstraint = new Constraint();
+        authAnyAuthConstraint.setAuthenticate(true);
+        authAnyAuthConstraint.setName("** constraint");
+        authAnyAuthConstraint.setRoles(new String[]{
+            Constraint.ANY_AUTH, "user"
+        });
+        ConstraintMapping starStarMapping = new ConstraintMapping();
+        starStarMapping.setPathSpec("/test/*");
+        starStarMapping.setConstraint(authAnyAuthConstraint);
 
-        assertTrue(mappings.get(0).getConstraint().getAuthenticate());
-        assertTrue(mappings.get(1).getConstraint().getAuthenticate());
-        assertTrue(mappings.get(2).getConstraint().getAuthenticate());
-        assertFalse(mappings.get(3).getConstraint().getAuthenticate());
+        //a relax constraint, ie no auth-constraint
+        Constraint relaxConstraint = new Constraint();
+        relaxConstraint.setAuthenticate(false);
+        relaxConstraint.setName("relax");
+        ConstraintMapping relaxMapping = new ConstraintMapping();
+        relaxMapping.setPathSpec("/test/*");
+        relaxMapping.setConstraint(relaxConstraint);
+
+        //a forbidden constraint
+        Constraint forbidConstraint = new Constraint();
+        forbidConstraint.setAuthenticate(true);
+        forbidConstraint.setName("forbid");
+        ConstraintMapping forbidMapping = new ConstraintMapping();
+        forbidMapping.setPathSpec("/test/*");
+        forbidMapping.setConstraint(forbidConstraint);
+
+        //an auth-constraint with roles A, B
+        Constraint rolesConstraint = new Constraint();
+        rolesConstraint.setAuthenticate(true);
+        rolesConstraint.setName("admin");
+        rolesConstraint.setRoles(new String[]{"A", "B"});
+        ConstraintMapping rolesABMapping = new ConstraintMapping();
+        rolesABMapping.setPathSpec("/test/*");
+        rolesABMapping.setConstraint(rolesConstraint);
+
+        //an auth-constraint with roles C, C
+        Constraint roles2Constraint = new Constraint();
+        roles2Constraint.setAuthenticate(true);
+        roles2Constraint.setName("admin");
+        roles2Constraint.setRoles(new String[]{"C", "D"});
+        ConstraintMapping rolesCDMapping = new ConstraintMapping();
+        rolesCDMapping.setPathSpec("/test/*");
+        rolesCDMapping.setConstraint(roles2Constraint);
+
+        //test combining forbidden with relax
+        List<ConstraintMapping> combinableConstraints = Arrays.asList(forbidMapping, relaxMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        String response;
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith(forbiddenString));
+
+        //test combining forbidden with *
+        _server.stop();
+        combinableConstraints = Arrays.asList(forbidMapping, starMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith(forbiddenString));
+
+        //test combining forbidden with **
+        _server.stop();
+        combinableConstraints = Arrays.asList(forbidMapping, starStarMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith(forbiddenString));
+
+        //test combining forbidden with roles
+        _server.stop();
+        combinableConstraints = Arrays.asList(forbidMapping, rolesABMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith(forbiddenString));
+
+        //test combining * with relax
+        _server.stop();
+        combinableConstraints = Arrays.asList(starMapping, relaxMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        //test combining * with **
+        _server.stop();
+        combinableConstraints = Arrays.asList(starMapping, starStarMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 401 Unauthorized"));
+        response = _connector.getResponse(getString + "\r\n" +
+            "Authorization: Basic " + authBase64("user4:password") + "\r\n" +
+            "\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        //test combining * with roles
+        _server.stop();
+        combinableConstraints = Arrays.asList(starMapping, rolesABMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 401 Unauthorized"));
+        response = _connector.getResponse(getString + "\r\n" +
+            "Authorization: Basic " + authBase64("user4:password") + "\r\n" +
+            "\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        //test combining ** with relax
+        _server.stop();
+        combinableConstraints = Arrays.asList(starStarMapping, relaxMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        //test combining ** with roles
+        _server.stop();
+        combinableConstraints = Arrays.asList(starStarMapping, rolesABMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 401 Unauthorized"));
+        response = _connector.getResponse(getString + "\r\n" +
+            "Authorization: Basic " + authBase64("user4:password") + "\r\n" +
+            "\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        //test combining roles with roles
+        _server.stop();
+        combinableConstraints = Arrays.asList(rolesCDMapping, rolesABMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 401 Unauthorized"));
+        response = _connector.getResponse(getString + "\r\n" +
+            "Authorization: Basic " + authBase64("user4:password") + "\r\n" +
+            "\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        //test combining relax with roles
+        _server.stop();
+        combinableConstraints = Arrays.asList(rolesABMapping, relaxMapping);
+        _security.setConstraintMappings(combinableConstraints);
+        _server.start();
+        response = _connector.getResponse(requestString);
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
     }
 
+    /**
+     * Test that constraint mappings added before the context starts are
+     * retained, but those that are added after the context starts are not.
+     * 
+     * @throws Exception
+     */
+    @Test
+    public void testDurableConstraints() throws Exception
+    {
+        List<ConstraintMapping> mappings =  _security.getConstraintMappings();
+        assertThat("before start", getConstraintMappings().size(), Matchers.equalTo(mappings.size()));
+        
+        _server.start();
+        
+        mappings =  _security.getConstraintMappings();
+        assertThat("after start", getConstraintMappings().size(), Matchers.equalTo(mappings.size()));
+        
+        _server.stop();
+        
+        //After a stop, just the durable mappings are left
+        mappings = _security.getConstraintMappings();
+        assertThat("after stop", getConstraintMappings().size(), Matchers.equalTo(mappings.size()));
+        
+        _server.start();
+        
+        //Verify the constraints are just the durables
+        mappings = _security.getConstraintMappings();
+        assertThat("after restart", getConstraintMappings().size(), Matchers.equalTo(mappings.size()));
+        
+        //Add a non-durable constraint
+        ConstraintMapping mapping = new ConstraintMapping();
+        mapping.setPathSpec("/xxxx/*");
+        Constraint constraint = new Constraint();
+        constraint.setAuthenticate(false);
+        constraint.setName("transient");
+        mapping.setConstraint(constraint);
+        
+        _security.addConstraintMapping(mapping);
+        
+        mappings = _security.getConstraintMappings();
+        assertThat("after addition", getConstraintMappings().size() + 1, Matchers.equalTo(mappings.size()));
+        
+        _server.stop();
+        _server.start();
+        
+        //After a stop, only the durable mappings remain
+        mappings = _security.getConstraintMappings();
+        assertThat("after addition", getConstraintMappings().size(), Matchers.equalTo(mappings.size()));
+        
+        //test that setConstraintMappings replaces all existing mappings whether durable or not
+        
+        //test setConstraintMappings in durable state
+        _server.stop();
+        _security.setConstraintMappings(Collections.singletonList(mapping));
+        mappings = _security.getConstraintMappings();
+        assertThat("after set during stop", 1, Matchers.equalTo(mappings.size()));
+        _server.start();
+        mappings = _security.getConstraintMappings();
+        assertThat("after set after start", 1, Matchers.equalTo(mappings.size()));
+       
+        //test setConstraintMappings not in durable state
+        _server.stop();
+        _server.start();
+        assertThat("no change after start", 1, Matchers.equalTo(mappings.size()));
+        _security.setConstraintMappings(getConstraintMappings());
+        mappings = _security.getConstraintMappings();
+        assertThat("durables lost", getConstraintMappings().size(), Matchers.equalTo(mappings.size()));
+        _server.stop();
+        mappings = _security.getConstraintMappings();
+        assertThat("no mappings", 0, Matchers.equalTo(mappings.size()));
+    }
+    
     /**
      * Equivalent of Servlet Spec 3.1 pg 132, sec 13.4.1.1, Example 13-1
      * &#064;ServletSecurity
@@ -468,18 +705,12 @@ public class ConstraintTest
             )
         ));
 
-//        rawResponse = _connector.getResponse("GET /ctx/noauth/info HTTP/1.0\r\n\r\n");
-//        assertThat(rawResponse, startsWith("HTTP/1.1 200 OK"));
-
         scenarios.add(Arguments.of(
             new Scenario(
                 "GET /ctx/forbid/info HTTP/1.0\r\n\r\n",
                 HttpStatus.FORBIDDEN_403
             )
         ));
-
-//        rawResponse = _connector.getResponse("GET /ctx/forbid/info HTTP/1.0\r\n\r\n");
-//        assertThat(rawResponse, startsWith("HTTP/1.1 403 Forbidden"));
 
         scenarios.add(Arguments.of(
             new Scenario(
@@ -493,9 +724,39 @@ public class ConstraintTest
             )
         ));
 
-//        rawResponse = _connector.getResponse("GET /ctx/auth/info HTTP/1.0\r\n\r\n");
-//        assertThat(rawResponse, startsWith("HTTP/1.1 401 Unauthorized"));
-//        assertThat(rawResponse, containsString("WWW-Authenticate: basic realm=\"TestRealm\""));
+        scenarios.add(Arguments.of(
+            new Scenario(
+                "POST /ctx/auth/info HTTP/1.1\r\n" +
+                    "Host: test\r\n" +
+                    "Content-Length: 10\r\n" +
+                    "\r\n" +
+                    "0123456789",
+                HttpStatus.UNAUTHORIZED_401,
+                (response) ->
+                {
+                    String authHeader = response.get(HttpHeader.WWW_AUTHENTICATE);
+                    assertThat(response.toString(), authHeader, containsString("basic realm=\"TestRealm\""));
+                    assertThat(response.get(HttpHeader.CONNECTION), nullValue());
+                }
+            )
+        ));
+
+        scenarios.add(Arguments.of(
+            new Scenario(
+                "POST /ctx/auth/info HTTP/1.1\r\n" +
+                    "Host: test\r\n" +
+                    "Content-Length: 10\r\n" +
+                    "\r\n" +
+                    "012345",
+                HttpStatus.UNAUTHORIZED_401,
+                (response) ->
+                {
+                    String authHeader = response.get(HttpHeader.WWW_AUTHENTICATE);
+                    assertThat(response.toString(), authHeader, containsString("basic realm=\"TestRealm\""));
+                    assertThat(response.get(HttpHeader.CONNECTION), is("close"));
+                }
+            )
+        ));
 
         scenarios.add(Arguments.of(
             new Scenario(
@@ -511,12 +772,6 @@ public class ConstraintTest
             )
         ));
 
-//        rawResponse = _connector.getResponse("GET /ctx/auth/info HTTP/1.0\r\n" +
-//                "Authorization: Basic " + authBase64("user:wrong") + "\r\n" +
-//                "\r\n");
-//        assertThat(rawResponse, startsWith("HTTP/1.1 401 Unauthorized"));
-//        assertThat(rawResponse, containsString("WWW-Authenticate: basic realm=\"TestRealm\""));
-
         scenarios.add(Arguments.of(
             new Scenario(
                 "GET /ctx/auth/info HTTP/1.0\r\n" +
@@ -526,10 +781,16 @@ public class ConstraintTest
             )
         ));
 
-//        rawResponse = _connector.getResponse("GET /ctx/auth/info HTTP/1.0\r\n" +
-//                "Authorization: Basic " + authBase64("user:password") + "\r\n" +
-//                "\r\n");
-//        assertThat(rawResponse, startsWith("HTTP/1.1 200 OK"));
+        scenarios.add(Arguments.of(
+            new Scenario(
+                "POST /ctx/auth/info HTTP/1.0\r\n" +
+                    "Content-Length: 10\r\n" +
+                    "Authorization: Basic " + authBase64("user:password") + "\r\n" +
+                    "\r\n" +
+                    "0123456789",
+                HttpStatus.OK_200
+            )
+        ));
 
         // == test admin
         scenarios.add(Arguments.of(
@@ -543,10 +804,6 @@ public class ConstraintTest
                 }
             )
         ));
-
-//        rawResponse = _connector.getResponse("GET /ctx/admin/info HTTP/1.0\r\n\r\n");
-//        assertThat(rawResponse, startsWith("HTTP/1.1 401 Unauthorized"));
-//        assertThat(rawResponse, containsString("WWW-Authenticate: basic realm=\"TestRealm\""));
 
         scenarios.add(Arguments.of(
             new Scenario(
@@ -634,7 +891,7 @@ public class ConstraintTest
     @MethodSource("basicScenarios")
     public void testBasic(Scenario scenario) throws Exception
     {
-        List<ConstraintMapping> list = new ArrayList<>(_security.getConstraintMappings());
+        List<ConstraintMapping> list = new ArrayList<>(getConstraintMappings());
 
         Constraint constraint6 = new Constraint();
         constraint6.setAuthenticate(true);
@@ -664,7 +921,7 @@ public class ConstraintTest
         constraint8.setRoles(new String[]{"foo"});
         ConstraintMapping mapping8 = new ConstraintMapping();
         mapping8.setPathSpec("/omit/*");
-        mapping8.setConstraint(constraint8);//requests for all methods must be in role "foo"
+        mapping8.setConstraint(constraint8); //requests for all methods must be in role "foo"
         list.add(mapping8);
 
         Set<String> knownRoles = new HashSet<>();
@@ -927,7 +1184,6 @@ public class ConstraintTest
             "Cookie: JSESSIONID=" + session + "\r\n" +
             "\r\n");
         assertThat(response, startsWith("HTTP/1.1 200 OK"));
-        assertThat(response, containsString("JSESSIONID=" + session));
 
         response = _connector.getResponse("GET /ctx/admin/info HTTP/1.0\r\n" +
             "Cookie: JSESSIONID=" + session + "\r\n" +
@@ -935,6 +1191,93 @@ public class ConstraintTest
         assertThat(response, startsWith("HTTP/1.1 403"));
         assertThat(response, containsString("!role"));
         assertThat(response, not(containsString("JSESSIONID=" + session)));
+    }
+
+    public static Stream<Arguments> onAuthenticationTests()
+    {
+        return Stream.of(
+            Arguments.of(false, 0),
+            Arguments.of(false, -1),
+            Arguments.of(false, 2400),
+            Arguments.of(true, 0),
+            Arguments.of(true, -1),
+            Arguments.of(true, 2400)
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("onAuthenticationTests")
+    public void testSessionOnAuthentication(boolean sessionRenewOnAuthentication, int sessionMaxInactiveIntervalOnAuthentication) throws Exception
+    {
+        final int UNAUTH_SECONDS = 1200;
+
+        // Use a FormAuthenticator as an example of session authentication
+        _security.setAuthenticator(new FormAuthenticator("/testLoginPage", "/testErrorPage", false));
+
+        _sessionhandler.setMaxInactiveInterval(UNAUTH_SECONDS);
+        _security.setSessionRenewedOnAuthentication(sessionRenewOnAuthentication);
+        _security.setSessionMaxInactiveIntervalOnAuthentication(sessionMaxInactiveIntervalOnAuthentication);
+        _server.start();
+
+        String response;
+
+        response = _connector.getResponse("GET /ctx/auth/info HTTP/1.0\r\n\r\n");
+        assertThat(response, containsString(" 302 Found"));
+        assertThat(response, containsString("/ctx/testLoginPage"));
+        assertThat(response, containsString("JSESSIONID="));
+        String sessionId = response.substring(response.indexOf("JSESSIONID=") + 11, response.indexOf("; Path=/ctx"));
+
+        response = _connector.getResponse("GET /ctx/testLoginPage HTTP/1.0\r\n" +
+            "Cookie: JSESSIONID=" + sessionId + "\r\n" +
+            "\r\n");
+        assertThat(response, containsString(" 200 OK"));
+        assertThat(response, containsString("URI=/ctx/testLoginPage"));
+        assertThat(response, not(containsString("JSESSIONID=" + sessionId)));
+
+        response = _connector.getResponse("POST /ctx/j_security_check HTTP/1.0\r\n" +
+            "Cookie: JSESSIONID=" + sessionId + "\r\n" +
+            "Content-Type: application/x-www-form-urlencoded\r\n" +
+            "Content-Length: 35\r\n" +
+            "\r\n" +
+            "j_username=user&j_password=password");
+        assertThat(response, startsWith("HTTP/1.1 302 "));
+        assertThat(response, containsString("Location"));
+        assertThat(response, containsString("/ctx/auth/info"));
+
+        if (sessionRenewOnAuthentication)
+        {
+            // check session ID has changed.
+            assertNull(_sessionhandler.getSession(sessionId));
+            assertThat(response, containsString("Set-Cookie:"));
+            assertThat(response, containsString("JSESSIONID="));
+            assertThat(response, not(containsString("JSESSIONID=" + sessionId)));
+            sessionId = response.substring(response.indexOf("JSESSIONID=") + 11, response.indexOf("; Path=/ctx"));
+        }
+        else
+        {
+            // check session ID has not changed.
+            assertThat(response, not(containsString("Set-Cookie:")));
+            assertThat(response, not(containsString("JSESSIONID=")));
+        }
+
+        if (sessionMaxInactiveIntervalOnAuthentication == 0)
+        {
+            // check max interval has not been updated
+            Session session = _sessionhandler.getSession(_sessionhandler.getSessionIdManager().getId(sessionId));
+            assertThat(session.getMaxInactiveInterval(), is(UNAUTH_SECONDS));
+        }
+        else
+        {
+            // check max interval has not been updated
+            Session session = _sessionhandler.getSession(_sessionhandler.getSessionIdManager().getId(sessionId));
+            assertThat(session.getMaxInactiveInterval(), is(sessionMaxInactiveIntervalOnAuthentication));
+        }
+
+        // check session still there.
+        response = _connector.getResponse("GET /ctx/auth/info HTTP/1.0\r\n" +
+            "Cookie: JSESSIONID=" + sessionId + "\r\n" +
+            "\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
     }
 
     @Test
@@ -1005,6 +1348,62 @@ public class ConstraintTest
             "\r\n");
         assertThat(response, startsWith("HTTP/1.1 403"));
         assertThat(response, containsString("!role"));
+    }
+
+    @Test
+    public void testNonFormPostRedirectHttp10() throws Exception
+    {
+        _security.setAuthenticator(new FormAuthenticator("/testLoginPage", "/testErrorPage", false));
+        _server.start();
+
+        String response = _connector.getResponse("POST /ctx/auth/info HTTP/1.0\r\n" +
+            "Content-Type: text/plain\r\n" +
+            "Connection: keep-alive\r\n" +
+            "Content-Length: 10\r\n" +
+            "\r\n" +
+            "0123456789\r\n");
+        assertThat(response, containsString(" 302 Found"));
+        assertThat(response, containsString("/ctx/testLoginPage"));
+        assertThat(response, not(containsString("Connection: close")));
+        assertThat(response, containsString("Connection: keep-alive"));
+
+        response = _connector.getResponse("POST /ctx/auth/info HTTP/1.0\r\n" +
+            "Host: localhost\r\n" +
+            "Content-Type: text/plain\r\n" +
+            "Connection: keep-alive\r\n" +
+            "Content-Length: 10\r\n" +
+            "\r\n" +
+            "012345\r\n");
+        assertThat(response, containsString(" 302 Found"));
+        assertThat(response, containsString("/ctx/testLoginPage"));
+        assertThat(response, not(containsString("Connection: keep-alive")));
+    }
+
+    @Test
+    public void testNonFormPostRedirectHttp11() throws Exception
+    {
+        _security.setAuthenticator(new FormAuthenticator("/testLoginPage", "/testErrorPage", false));
+        _server.start();
+
+        String response = _connector.getResponse("POST /ctx/auth/info HTTP/1.1\r\n" +
+            "Host: test\r\n" +
+            "Content-Type: text/plain\r\n" +
+            "Content-Length: 10\r\n" +
+            "\r\n" +
+            "0123456789\r\n");
+        assertThat(response, containsString(" 303 See Other"));
+        assertThat(response, containsString("/ctx/testLoginPage"));
+        assertThat(response, not(containsString("Connection: close")));
+
+        response = _connector.getResponse("POST /ctx/auth/info HTTP/1.1\r\n" +
+            "Host: test\r\n" +
+            "Content-Type: text/plain\r\n" +
+            "Content-Length: 10\r\n" +
+            "\r\n" +
+            "012345\r\n");
+        assertThat(response, containsString(" 303 See Other"));
+        assertThat(response, containsString("/ctx/testLoginPage"));
+        assertThat(response, containsString("Connection: close"));
     }
 
     @Test
@@ -1657,7 +2056,116 @@ public class ConstraintTest
         assertThat(response, startsWith("HTTP/1.1 200 "));
 
         response = _connector.getResponse("GET /ctx/forbid/post HTTP/1.0\r\n\r\n");
-        assertThat(response, startsWith("HTTP/1.1 200 "));  // This is so stupid, but it is the S P E C
+        assertThat(response, startsWith("HTTP/1.1 403 "));
+    }
+
+    @Test
+    public void testUncoveredMethod() throws Exception
+    {
+        ConstraintMapping specificMethod = new ConstraintMapping();
+        specificMethod.setMethod("GET");
+        specificMethod.setPathSpec("/specific/method");
+        specificMethod.setConstraint(_forbidConstraint);
+        _security.addConstraintMapping(specificMethod);
+        _security.setAuthenticator(new BasicAuthenticator());
+        Logger.getAnonymousLogger().info("Uncovered method for /specific/method is expected");
+        _server.start();
+
+        assertThat(_security.getPathsWithUncoveredHttpMethods(), contains("/specific/method"));
+
+        String response;
+        response = _connector.getResponse("GET /ctx/specific/method HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 "));
+
+        response = _connector.getResponse("POST /ctx/specific/method HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 ")); // This is so stupid, but it is the S P E C
+    }
+
+    @Test
+    public void testForbidTraceAndOptions() throws Exception
+    {
+        ConstraintMapping forbidTrace = new ConstraintMapping();
+        forbidTrace.setMethod("TRACE");
+        forbidTrace.setPathSpec("/");
+        forbidTrace.setConstraint(_forbidConstraint);
+        ConstraintMapping allowOmitTrace = new ConstraintMapping();
+        allowOmitTrace.setMethodOmissions(new String[] {"TRACE"});
+        allowOmitTrace.setPathSpec("/");
+        allowOmitTrace.setConstraint(_relaxConstraint);
+
+        ConstraintMapping forbidOptions = new ConstraintMapping();
+        forbidOptions.setMethod("OPTIONS");
+        forbidOptions.setPathSpec("/");
+        forbidOptions.setConstraint(_forbidConstraint);
+        ConstraintMapping allowOmitOptions = new ConstraintMapping();
+        allowOmitOptions.setMethodOmissions(new String[] {"OPTIONS"});
+        allowOmitOptions.setPathSpec("/");
+        allowOmitOptions.setConstraint(_relaxConstraint);
+
+        ConstraintMapping someConstraint = new ConstraintMapping();
+        someConstraint.setPathSpec("/some/constaint/*");
+        someConstraint.setConstraint(_noAuthConstraint);
+
+        _security.setConstraintMappings(new ConstraintMapping[] {forbidTrace, allowOmitTrace, forbidOptions, allowOmitOptions, someConstraint});
+
+        _security.setAuthenticator(new BasicAuthenticator());
+        _server.start();
+
+        assertThat(_security.getPathsWithUncoveredHttpMethods(), Matchers.empty());
+
+        String response;
+        response = _connector.getResponse("TRACE /ctx/some/path HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 "));
+
+        response = _connector.getResponse("OPTIONS /ctx/some/path HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 "));
+
+        response = _connector.getResponse("GET /ctx/some/path HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 "));
+
+        response = _connector.getResponse("GET /ctx/some/constraint/info HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 "));
+
+        response = _connector.getResponse("OPTIONS /ctx/some/constraint/info HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 "));
+    }
+
+    @Test
+    public void testDefaultConstraint() throws Exception
+    {
+        _security.setAuthenticator(new BasicAuthenticator());
+
+        ConstraintMapping forbidDefault = new ConstraintMapping();
+        forbidDefault.setPathSpec("/");
+        forbidDefault.setConstraint(_forbidConstraint);
+        _security.addConstraintMapping(forbidDefault);
+
+        ConstraintMapping allowRoot = new ConstraintMapping();
+        allowRoot.setPathSpec("");
+        allowRoot.setConstraint(_relaxConstraint);
+        _security.addConstraintMapping(allowRoot);
+
+        _server.start();
+        String response;
+
+        response = _connector.getResponse("GET /ctx/ HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
+
+        response = _connector.getResponse("GET /ctx/anything HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 Forbidden"));
+
+        response = _connector.getResponse("GET /ctx/noauth/info HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 Forbidden"));
+
+        response = _connector.getResponse("GET /ctx/forbid/info HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 403 Forbidden"));
+
+        response = _connector.getResponse("GET /ctx/auth/info HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 401 Unauthorized"));
+        assertThat(response, containsString("WWW-Authenticate: basic realm=\"TestRealm\""));
+
+        response = _connector.getResponse("GET /ctx/admin/relax/info HTTP/1.0\r\n\r\n");
+        assertThat(response, startsWith("HTTP/1.1 200 OK"));
     }
 
     private static String authBase64(String authorization)
@@ -1668,11 +2176,20 @@ public class ConstraintTest
 
     private class RequestHandler extends AbstractHandler
     {
+        private List<String> _acceptableUsers;
+        private List<String> _acceptableRoles;
+
+        public RequestHandler(String[] users, String[] roles)
+        {
+            _acceptableUsers = Arrays.asList(users);
+            _acceptableRoles = Arrays.asList(roles);
+        }
+        
         @Override
         public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
         {
             baseRequest.setHandled(true);
-            if (request.getAuthType() == null || "user".equals(request.getRemoteUser()) || request.isUserInRole("user") || request.isUserInRole("foo"))
+            if (request.getAuthType() == null || isAcceptableUser(request) || isInAcceptableRole(request))
             {
                 response.setStatus(200);
                 response.setContentType("text/plain; charset=UTF-8");
@@ -1684,6 +2201,34 @@ public class ConstraintTest
             }
             else
                 response.sendError(500);
+        }
+
+        private boolean isAcceptableUser(HttpServletRequest request)
+        {
+            String user = request.getRemoteUser();
+            if (_acceptableUsers == null)
+            {
+                return true;
+            }
+
+            if (user == null)
+                return false;
+
+            return _acceptableUsers.contains(user);
+        }
+
+        private boolean isInAcceptableRole(HttpServletRequest request)
+        {
+            if (_acceptableRoles == null)
+                return true;
+
+            for (String role : _acceptableRoles)
+            {
+                if (request.isUserInRole(role))
+                    return true;
+            }
+
+            return false;
         }
     }
 

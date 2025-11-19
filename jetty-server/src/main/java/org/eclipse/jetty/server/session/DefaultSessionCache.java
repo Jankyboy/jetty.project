@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,7 +13,9 @@
 
 package org.eclipse.jetty.server.session;
 
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 import javax.servlet.http.HttpServletRequest;
 
@@ -32,7 +29,7 @@ import org.slf4j.LoggerFactory;
 /**
  * DefaultSessionCache
  *
- * A session store that keeps its sessions in memory in a hashmap
+ * A session store that keeps its sessions in memory within a concurrent map
  */
 @ManagedObject
 public class DefaultSessionCache extends AbstractSessionCache
@@ -40,9 +37,9 @@ public class DefaultSessionCache extends AbstractSessionCache
     private static final Logger LOG = LoggerFactory.getLogger(DefaultSessionCache.class);
 
     /**
-     * The cache of sessions in a hashmap
+     * The cache of sessions in a concurrent map
      */
-    protected ConcurrentHashMap<String, Session> _sessions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Session> _sessions;
 
     private final CounterStatistic _stats = new CounterStatistic();
 
@@ -51,7 +48,17 @@ public class DefaultSessionCache extends AbstractSessionCache
      */
     public DefaultSessionCache(SessionHandler manager)
     {
+        this(manager, new ConcurrentHashMap<>());
+    }
+
+    /**
+     * @param manager The SessionHandler related to this SessionCache
+     * @param sessions The session map implementation to use
+     */
+    public DefaultSessionCache(SessionHandler manager, ConcurrentMap<String, Session> sessions)
+    {
         super(manager);
+        _sessions = Objects.requireNonNull(sessions, "Session Map may not be null");
     }
 
     /**
@@ -92,10 +99,7 @@ public class DefaultSessionCache extends AbstractSessionCache
     {
         if (id == null)
             return null;
-
-        Session session = _sessions.get(id);
-
-        return session;
+        return _sessions.get(id);
     }
 
     @Override
@@ -177,21 +181,18 @@ public class DefaultSessionCache extends AbstractSessionCache
     @Override
     public Session newSession(HttpServletRequest request, SessionData data)
     {
-        Session s = new Session(getSessionHandler(), request, data);
-        return s;
+        return new Session(getSessionHandler(), request, data);
     }
 
     @Override
     public Session newSession(SessionData data)
     {
-        Session s = new Session(getSessionHandler(), data);
-        return s;
+        return new Session(getSessionHandler(), data);
     }
 
     @Override
     public boolean doReplace(String id, Session oldValue, Session newValue)
     {
-        boolean result = _sessions.replace(id, oldValue, newValue);
-        return result;
+        return _sessions.replace(id, oldValue, newValue);
     }
 }

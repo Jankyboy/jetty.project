@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -37,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class HpackPerfTest
 {
-    int _maxDynamicTableSize = 4 * 1024;
+    int _tableCapacity = 4 * 1024;
     int _unencodedSize;
     int _encodedSize;
 
@@ -51,7 +46,7 @@ public class HpackPerfTest
     @AfterEach
     public void after()
     {
-        System.err.printf("dynamictable=%d unencoded=%d encoded=%d p=%3.1f%%%n", _maxDynamicTableSize, _unencodedSize, _encodedSize, 100.0 * _encodedSize / _unencodedSize);
+        System.err.printf("dynamictable=%d unencoded=%d encoded=%d p=%3.1f%%%n", _tableCapacity, _unencodedSize, _encodedSize, 100.0 * _encodedSize / _unencodedSize);
     }
 
     @Test
@@ -97,7 +92,9 @@ public class HpackPerfTest
         {
             if (type.equals(story.get("context")))
             {
-                HpackEncoder encoder = new HpackEncoder(_maxDynamicTableSize, _maxDynamicTableSize);
+                HpackEncoder encoder = new HpackEncoder();
+                encoder.setMaxTableCapacity(_tableCapacity);
+                encoder.setTableCapacity(_tableCapacity);
                 encoder.setValidateEncoding(false);
 
                 Object[] cases = (Object[])story.get("cases");

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,6 +15,7 @@ package org.eclipse.jetty.http2.parser;
 
 import java.nio.ByteBuffer;
 
+import org.eclipse.jetty.http2.Flags;
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.FrameType;
 
@@ -46,6 +42,11 @@ public class HeaderParser
     public RateControl getRateControl()
     {
         return rateControl;
+    }
+
+    boolean rateControlOnEvent(Object o)
+    {
+        return getRateControl().onEvent(o);
     }
 
     protected void reset()
@@ -145,9 +146,29 @@ public class HeaderParser
         return type;
     }
 
+    /**
+     * <p>Returns whether the given header {@link Flags flag} is present.</p>
+     *
+     * @param bit the flag to test for presence
+     * @return whether the flag is present
+     */
     public boolean hasFlag(int bit)
     {
         return (flags & bit) == bit;
+    }
+
+    /**
+     * <p>Returns the raw value of the header flag bits.</p>
+     * <p>Use {@link #hasFlag(int)} to test for flag presence.
+     * This method should be used just to retrieve the raw value
+     * of all the flag bits.</p>
+     *
+     * @return the raw value of the headers flag bits
+     * @see #hasFlag(int)
+     */
+    public int getFlags()
+    {
+        return flags;
     }
 
     public int getStreamId()

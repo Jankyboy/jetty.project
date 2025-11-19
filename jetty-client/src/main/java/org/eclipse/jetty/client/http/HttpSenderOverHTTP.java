@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -44,7 +39,6 @@ public class HttpSenderOverHTTP extends HttpSender
     private final IteratingCallback headersCallback = new HeadersCallback();
     private final IteratingCallback contentCallback = new ContentCallback();
     private final HttpGenerator generator = new HttpGenerator();
-    private HttpExchange exchange;
     private MetaData.Request metaData;
     private ByteBuffer contentBuffer;
     private boolean lastContent;
@@ -67,7 +61,6 @@ public class HttpSenderOverHTTP extends HttpSender
     {
         try
         {
-            this.exchange = exchange;
             this.contentBuffer = contentBuffer;
             this.lastContent = lastContent;
             this.callback = callback;
@@ -78,7 +71,7 @@ public class HttpSenderOverHTTP extends HttpSender
             String query = request.getQuery();
             if (query != null)
                 path += "?" + query;
-            metaData = new MetaData.Request(request.getMethod(), HttpURI.from(path), request.getVersion(), request.getHeaders(), contentLength, request.getTrailers());
+            metaData = new MetaData.Request(request.getMethod(), HttpURI.from(request.getMethod(), path), request.getVersion(), request.getHeaders(), contentLength, request.getTrailers());
             if (LOG.isDebugEnabled())
                 LOG.debug("Sending headers with content {} last={} for {}", BufferUtil.toDetailString(contentBuffer), lastContent, exchange.getRequest());
             headersCallback.iterate();
@@ -96,7 +89,6 @@ public class HttpSenderOverHTTP extends HttpSender
     {
         try
         {
-            this.exchange = exchange;
             this.contentBuffer = contentBuffer;
             this.lastContent = lastContent;
             this.callback = callback;
@@ -162,6 +154,7 @@ public class HttpSenderOverHTTP extends HttpSender
         protected Action process() throws Exception
         {
             HttpClient httpClient = getHttpChannel().getHttpDestination().getHttpClient();
+            HttpExchange exchange = getHttpExchange();
             ByteBufferPool byteBufferPool = httpClient.getByteBufferPool();
             boolean useDirectByteBuffers = httpClient.isUseOutputDirectByteBuffers();
             while (true)
@@ -198,7 +191,7 @@ public class HttpSenderOverHTTP extends HttpSender
                     }
                     case FLUSH:
                     {
-                        final EndPoint endPoint = getHttpChannel().getHttpConnection().getEndPoint();
+                        EndPoint endPoint = getHttpChannel().getHttpConnection().getEndPoint();
                         if (headerBuffer == null)
                             headerBuffer = BufferUtil.EMPTY_BUFFER;
                         if (chunkBuffer == null)

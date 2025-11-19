@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,6 +26,7 @@ import org.eclipse.jetty.server.RequestLog;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ShutdownMonitor;
 import org.eclipse.jetty.server.handler.ContextHandler;
+import org.eclipse.jetty.servlet.ServletHandler;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
 
@@ -50,7 +46,7 @@ public class JettyEmbedder extends AbstractLifeCycle
     protected boolean exitVm;
     protected boolean stopAtShutdown;
     protected List<File> jettyXmlFiles;
-    protected Map<String,String> jettyProperties;
+    protected Map<String, String> jettyProperties;
     protected ShutdownMonitor shutdownMonitor;
     protected int stopPort;
     protected String stopKey;
@@ -232,6 +228,12 @@ public class JettyEmbedder extends AbstractLifeCycle
     {
         if (!webApp.isStopped())
             webApp.stop();
+
+        //clear the ServletHandler, which may have
+        //remembered "durable" Servlets, Filters, Listeners
+        //from the context xml file, but as we will re-apply
+        //the context xml, we should not retain them
+        webApp.setServletHandler(new ServletHandler());
         
         //regenerate config properties
         applyWebAppProperties();

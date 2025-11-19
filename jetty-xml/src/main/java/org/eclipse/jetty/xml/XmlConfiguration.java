@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,6 +13,7 @@
 
 package org.eclipse.jetty.xml;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.annotation.Annotation;
@@ -35,8 +31,6 @@ import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.AccessController;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -45,6 +39,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -64,7 +59,6 @@ import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.annotation.Name;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
-import org.eclipse.jetty.util.thread.AutoLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -126,28 +120,63 @@ public class XmlConfiguration
                     Class<?> t2 = p2[i].getType();
                     if (t1 != t2)
                     {
-                        // Favour derived type over base type
-                        compare = Boolean.compare(t1.isAssignableFrom(t2), t2.isAssignableFrom(t1));
+                        // prefer primitives
+                        compare = Boolean.compare(t2.isPrimitive(), t1.isPrimitive());
                         if (compare == 0)
                         {
-                            // favour primitive type over reference
-                            compare = Boolean.compare(!t1.isPrimitive(), !t2.isPrimitive());
-                            if (compare == 0)
-                                // Use name to avoid non determinant sorting
-                                compare = t1.getName().compareTo(t2.getName());
-                        }
+                            // prefer interfaces
+                            compare = Boolean.compare(t2.isInterface(), t1.isInterface());
 
-                        // break on the first different parameter (should always be true)
-                        if (compare != 0)
-                            break;
+                            if (compare == 0)
+                            {
+                                // prefer most derived
+                                int d1 = calculateDepth(t1);
+                                int d2 = calculateDepth(t2);
+                                compare = Integer.compare(d2, d1);
+                            }
+                        }
                     }
+                    // break on the first different parameter
+                    if (compare != 0)
+                        break;
                 }
             }
-            compare = Math.min(1, Math.max(compare, -1));
         }
 
-        return compare;
+        // failsafe is to compare on the generic string
+        if (compare == 0)
+            compare = e1.toGenericString().compareTo(e2.toGenericString());
+
+        // Return normalized to -1, 0, 1
+        return Integer.compare(compare, 0);
     };
+
+    private static int calculateDepth(Class<?> c)
+    {
+        int depth = 0;
+
+        if (c.isPrimitive())
+            return Integer.MIN_VALUE;
+
+        if (c.isInterface())
+        {
+            Set<Class<?>> interfaces = Set.of(c);
+            while (!interfaces.isEmpty())
+            {
+                depth++;
+                interfaces = interfaces.stream().flatMap(i -> Arrays.stream(i.getInterfaces())).collect(Collectors.toSet());
+            }
+        }
+        else
+        {
+            while (c != Object.class && !c.isPrimitive())
+            {
+                depth++;
+                c = c.getSuperclass();
+            }
+        }
+        return depth;
+    }
 
     /**
      * Set the standard IDs and properties expected in a jetty XML file:
@@ -206,7 +235,7 @@ public class XmlConfiguration
     private final String _dtd;
     private ConfigurationProcessor _processor;
 
-    ConfigurationParser getParser()
+    public XmlParser getXmlParser()
     {
         Pool<ConfigurationParser>.Entry entry = __parsers.acquire(ConfigurationParser::new);
         if (entry == null)
@@ -223,11 +252,17 @@ public class XmlConfiguration
      */
     public XmlConfiguration(Resource resource) throws SAXException, IOException
     {
-        try (ConfigurationParser parser = getParser(); InputStream inputStream = resource.getInputStream())
+        XmlParser parser = getXmlParser();
+        try (InputStream inputStream = resource.getInputStream())
         {
             _location = resource;
             setConfig(parser.parse(inputStream));
             _dtd = parser.getDTD();
+        }
+        finally
+        {
+            if (parser instanceof Closeable)
+                ((Closeable)parser).close();
         }
     }
 
@@ -335,6 +370,22 @@ public class XmlConfiguration
      */
     public void initializeDefaults(Object object)
     {
+    }
+
+    /**
+     * Utility method to resolve a provided path against a directory.
+     *
+     * @param dir the directory (should be a directory reference, does not have to exist)
+     * @param destPath the destination path (can be relative or absolute, syntax depends on OS + FileSystem in use,
+     * and does not need to exist)
+     * @return String to resolved and normalized path, or null if dir or destPath is empty.
+     */
+    public static String resolvePath(String dir, String destPath)
+    {
+        if (StringUtil.isEmpty(dir) || StringUtil.isEmpty(destPath))
+            return null;
+
+        return Paths.get(dir).resolve(destPath).normalize().toString();
     }
 
     private static class JettyXmlConfiguration implements ConfigurationProcessor
@@ -483,7 +534,7 @@ public class XmlConfiguration
                 }
                 catch (Exception e)
                 {
-                    LOG.warn("Config error {} at {} in {}", e.toString(), node, _configuration);
+                    LOG.warn("Config error {} at {} in {}", e, node, _configuration);
                     throw e;
                 }
             }
@@ -505,10 +556,16 @@ public class XmlConfiguration
          */
         private void set(Object obj, XmlParser.Node node) throws Exception
         {
-            String attr = node.getAttribute("name");
+            String name = node.getAttribute("name");
+            String setter = "set" + name.substring(0, 1).toUpperCase(Locale.ENGLISH) + name.substring(1);
             String id = node.getAttribute("id");
             String property = node.getAttribute("property");
             String propertyValue = null;
+
+            Class<?> oClass = nodeClass(node);
+            if (oClass == null)
+                oClass = obj.getClass();
+
             // Look for a property value
             if (property != null)
             {
@@ -516,27 +573,31 @@ public class XmlConfiguration
                 propertyValue = properties.get(property);
                 // If no property value, then do not set
                 if (propertyValue == null)
+                {
+                    // check that there is at least one setter or field that could have matched
+                    if (Arrays.stream(oClass.getMethods()).noneMatch(m -> m.getName().equals(setter)) &&
+                        Arrays.stream(oClass.getFields()).filter(f -> Modifier.isPublic(f.getModifiers())).noneMatch(f -> f.getName().equals(name)))
+                    {
+                        NoSuchMethodException e = new NoSuchMethodException(String.format("No method '%s' on %s", setter, oClass.getName()));
+                        e.addSuppressed(new NoSuchFieldException(String.format("No field '%s' on %s", name, oClass.getName())));
+                        throw e;
+                    }
+                    // otherwise it is a noop
                     return;
+                }
             }
 
-            String name = "set" + attr.substring(0, 1).toUpperCase(Locale.ENGLISH) + attr.substring(1);
             Object value = value(obj, node);
             if (value == null)
                 value = propertyValue;
             Object[] arg = {value};
 
-            Class<?> oClass = nodeClass(node);
-            if (oClass != null)
-                obj = null;
-            else
-                oClass = obj.getClass();
-
-            Class<?>[] vClass = {Object.class};
+            Class<?> vClass = Object.class;
             if (value != null)
-                vClass[0] = value.getClass();
+                vClass = value.getClass();
 
             if (LOG.isDebugEnabled())
-                LOG.debug("XML {}.{} ({})", (obj != null ? obj.toString() : oClass.getName()), name, value);
+                LOG.debug("XML {}.{} ({})", (obj != null ? obj.toString() : oClass.getName()), setter, value);
 
             MultiException me = new MultiException();
 
@@ -547,7 +608,7 @@ public class XmlConfiguration
                 // Try for trivial match
                 try
                 {
-                    Method set = oClass.getMethod(name, vClass);
+                    Method set = oClass.getMethod(setter, vClass);
                     invokeMethod(set, obj, arg);
                     return;
                 }
@@ -560,9 +621,9 @@ public class XmlConfiguration
                 // Try for native match
                 try
                 {
-                    Field type = vClass[0].getField("TYPE");
-                    vClass[0] = (Class<?>)type.get(null);
-                    Method set = oClass.getMethod(name, vClass);
+                    Field type = vClass.getField("TYPE");
+                    vClass = (Class<?>)type.get(null);
+                    Method set = oClass.getMethod(setter, vClass);
                     invokeMethod(set, obj, arg);
                     return;
                 }
@@ -575,7 +636,7 @@ public class XmlConfiguration
                 // Try a field
                 try
                 {
-                    Field field = oClass.getField(attr);
+                    Field field = oClass.getField(name);
                     if (Modifier.isPublic(field.getModifiers()))
                     {
                         try
@@ -612,18 +673,18 @@ public class XmlConfiguration
                 // Search for a match by trying all the set methods
                 Method[] sets = oClass.getMethods();
                 Method set = null;
-                for (Method setter : sets)
+                for (Method s : sets)
                 {
-                    if (setter.getParameterCount() != 1)
+                    if (s.getParameterCount() != 1)
                         continue;
-                    Class<?>[] paramTypes = setter.getParameterTypes();
-                    if (name.equals(setter.getName()))
+                    Class<?>[] paramTypes = s.getParameterTypes();
+                    if (setter.equals(s.getName()))
                     {
                         types = types == null ? paramTypes[0].getName() : (types + "," + paramTypes[0].getName());
                         // lets try it
                         try
                         {
-                            set = setter;
+                            set = s;
                             invokeMethod(set, obj, arg);
                             return;
                         }
@@ -640,7 +701,7 @@ public class XmlConfiguration
                                 if (paramTypes[0].isAssignableFrom(c))
                                 {
                                     setValue = convertArrayToCollection(value, c);
-                                    invokeMethod(setter, obj, setValue);
+                                    invokeMethod(s, obj, setValue);
                                     return;
                                 }
                             }
@@ -693,7 +754,7 @@ public class XmlConfiguration
             }
 
             // No Joy
-            String message = oClass + "." + name + "(" + vClass[0] + ")";
+            String message = oClass + "." + setter + "(" + vClass + ")";
             if (types != null)
                 message += ". Found setters for " + types;
             NoSuchMethodException failure = new NoSuchMethodException(message);
@@ -799,20 +860,25 @@ public class XmlConfiguration
          */
         private Object get(Object obj, XmlParser.Node node) throws Exception
         {
-            Class<?> oClass = nodeClass(node);
-            if (oClass != null)
-                obj = null;
-            else
-                oClass = obj.getClass();
+            AttrOrElementNode aoeNode = new AttrOrElementNode(obj, node, "Id", "Name", "Class");
+            String id = aoeNode.getString("Id");
+            String name = aoeNode.getString("Name");
+            String clazz = aoeNode.getString("Class");
 
-            String name = node.getAttribute("name");
-            String id = node.getAttribute("id");
+            Class<?> oClass;
+            if (clazz != null)
+                oClass = Loader.loadClass(clazz);
+            else if (obj != null)
+                oClass = obj.getClass();
+            else
+                throw new IllegalArgumentException(node.toString());
+
             if (LOG.isDebugEnabled())
                 LOG.debug("XML get {}", name);
 
             try
             {
-                // Handle getClass explicitly
+                // Handle getClass() explicitly.
                 if ("class".equalsIgnoreCase(name))
                 {
                     obj = oClass;
@@ -825,20 +891,27 @@ public class XmlConfiguration
                 }
                 if (id != null)
                     _configuration.getIdMap().put(id, obj);
-                configure(obj, node, 0);
+                configure(obj, node, aoeNode.getNext());
             }
-            catch (NoSuchMethodException nsme)
+            catch (NoSuchMethodException nsme1)
             {
                 try
+                {
+                    // Try calling a isXxx() method.
+                    Method method = oClass.getMethod("is" + name.substring(0, 1).toUpperCase(Locale.ENGLISH) + name.substring(1));
+                    obj = invokeMethod(method, obj);
+                    if (id != null)
+                        _configuration.getIdMap().put(id, obj);
+                    configure(obj, node, aoeNode.getNext());
+                }
+                catch (NoSuchMethodException nsme2)
                 {
                     // Try the field.
                     Field field = oClass.getField(name);
                     obj = getField(field, obj);
-                    configure(obj, node, 0);
-                }
-                catch (NoSuchFieldException nsfe)
-                {
-                    throw nsme;
+                    if (id != null)
+                        _configuration.getIdMap().put(id, obj);
+                    configure(obj, node, aoeNode.getNext());
                 }
             }
             return obj;
@@ -864,15 +937,9 @@ public class XmlConfiguration
 
             Class<?> oClass;
             if (clazz != null)
-            {
-                // static call
                 oClass = Loader.loadClass(clazz);
-                obj = null;
-            }
             else if (obj != null)
-            {
                 oClass = obj.getClass();
-            }
             else
                 throw new IllegalArgumentException(node.toString());
 
@@ -901,19 +968,17 @@ public class XmlConfiguration
                 throw new IllegalArgumentException("Method name cannot be blank");
 
             // Lets just try all methods for now
+            Method[] methods = Arrays.stream(oClass.getMethods())
+                .filter(m -> m.getName().equals(methodName))
+                .sorted(EXECUTABLE_COMPARATOR)
+                .toArray(Method[]::new);
 
-            Method[] methods = oClass.getMethods();
-            Arrays.sort(methods, EXECUTABLE_COMPARATOR);
             for (Method method : methods)
             {
                 if (!method.getName().equals(methodName))
                     continue;
                 Object[] arguments = args.applyTo(method);
                 if (arguments == null)
-                    continue;
-                if (Modifier.isStatic(method.getModifiers()) != (obj == null))
-                    continue;
-                if ((obj == null) && method.getDeclaringClass() != oClass)
                     continue;
 
                 try
@@ -1071,11 +1136,16 @@ public class XmlConfiguration
          */
         private Object newMap(Object obj, XmlParser.Node node) throws Exception
         {
-            AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Entry");
+            AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Entry", "Class");
             String id = aoeNode.getString("Id");
             List<XmlParser.Node> entries = aoeNode.getNodes("Entry");
+            String clazz = aoeNode.getString("Class");
+            if (clazz == null)
+                clazz = HashMap.class.getName();
+            @SuppressWarnings("unchecked")
+            Class<? extends Map<Object, Object>> oClass = Loader.loadClass(clazz);
 
-            Map<Object, Object> map = new HashMap<>();
+            Map<Object, Object> map = oClass.getConstructor().newInstance();
             if (id != null)
                 _configuration.getIdMap().put(id, map);
 
@@ -1128,13 +1198,16 @@ public class XmlConfiguration
         {
             AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Name", "Deprecated", "Default");
             String id = aoeNode.getString("Id");
-            String name = aoeNode.getString("Name", true);
+            String name = aoeNode.getString("Name", false);
             List<Object> deprecated = aoeNode.getList("Deprecated");
             String dftValue = aoeNode.getString("Default");
 
+            if (name == null && deprecated.isEmpty())
+                throw new IllegalStateException("Invalid <Property> element");
+
             // Look for a value
             Map<String, String> properties = _configuration.getProperties();
-            String value = properties.get(name);
+            String value = name == null ? null : properties.get(name);
 
             // Look for a deprecated name value
             String alternate = null;
@@ -1142,13 +1215,22 @@ public class XmlConfiguration
             {
                 for (Object d : deprecated)
                 {
-                    String v = properties.get(StringUtil.valueOf(d));
+                    if (d == null)
+                        continue;
+                    String v = properties.get(d.toString());
                     if (v != null)
                     {
                         if (value == null)
-                            LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
+                        {
+                            if (name == null)
+                                LOG.warn("Property '{}' is deprecated, no replacement available", d);
+                            else
+                                LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
+                        }
                         else
-                            LOG.warn("Property '{}' is deprecated, value from '{}' used", d, name);
+                        {
+                            LOG.warn("Property '{}' is deprecated, value from '{}' used instead", d, name);
+                        }
                     }
                     if (alternate == null)
                         alternate = v;
@@ -1179,12 +1261,15 @@ public class XmlConfiguration
         {
             AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Name", "Deprecated", "Default");
             String id = aoeNode.getString("Id");
-            String name = aoeNode.getString("Name", true);
+            String name = aoeNode.getString("Name", false);
             List<Object> deprecated = aoeNode.getList("Deprecated");
             String dftValue = aoeNode.getString("Default");
 
+            if (name == null && deprecated.isEmpty())
+                throw new IllegalStateException("Invalid <SystemProperty> element");
+
             // Look for a value
-            String value = System.getProperty(name);
+            String value = name == null ? null : System.getProperty(name);
 
             // Look for a deprecated name value
             String alternate = null;
@@ -1198,9 +1283,16 @@ public class XmlConfiguration
                     if (v != null)
                     {
                         if (value == null)
-                            LOG.warn("SystemProperty '{}' is deprecated, use '{}' instead", d, name);
+                        {
+                            if (name == null)
+                                LOG.warn("SystemProperty '{}' is deprecated, no replacement available", d);
+                            else
+                                LOG.warn("SystemProperty '{}' is deprecated, use '{}' instead", d, name);
+                        }
                         else
+                        {
                             LOG.warn("SystemProperty '{}' is deprecated, value from '{}' used", d, name);
+                        }
                     }
                     if (alternate == null)
                         alternate = v;
@@ -1232,22 +1324,30 @@ public class XmlConfiguration
         {
             AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Name", "Deprecated", "Default");
             String id = aoeNode.getString("Id");
-            String name = aoeNode.getString("Name", true);
+            String name = aoeNode.getString("Name", false);
             List<Object> deprecated = aoeNode.getList("Deprecated");
             String dftValue = aoeNode.getString("Default");
 
+            if (name == null && deprecated.isEmpty())
+                throw new IllegalStateException("Invalid <Env> element");
+
             // Look for a value
-            String value = System.getenv(name);
+            String value = name == null ? null : System.getenv(name);
 
             // Look for a deprecated name value
             if (value == null && !deprecated.isEmpty())
             {
                 for (Object d : deprecated)
                 {
-                    value = System.getenv(StringUtil.valueOf(d));
+                    if (d == null)
+                        continue;
+                    value = System.getenv(d.toString());
                     if (value != null)
                     {
-                        LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
+                        if (name == null)
+                            LOG.warn("Property '{}' is deprecated, no replacement available", d);
+                        else
+                            LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
                         break;
                     }
                 }
@@ -1758,82 +1858,97 @@ public class XmlConfiguration
     {
         try
         {
-            AccessController.doPrivileged((PrivilegedExceptionAction<Void>)() ->
+            Properties properties = new Properties();
+            properties.putAll(System.getProperties());
+
+            // For all arguments, load properties
+            if (LOG.isDebugEnabled())
+                LOG.debug("args={}", Arrays.asList(args));
+
+            List<String> remainingArgs = new ArrayList<>(Arrays.asList(args));
+
+            // Process properties first, as the XML needs them.
+            // We don't want to start processing the XML then come across a property that is needed.
+            ListIterator<String> argIter = remainingArgs.listIterator();
+            while (argIter.hasNext())
             {
-                Properties properties = new Properties();
-                properties.putAll(System.getProperties());
-
-                // For all arguments, load properties
-                if (LOG.isDebugEnabled())
-                    LOG.debug("args={}", Arrays.asList(args));
-                for (String arg : args)
+                String arg = argIter.next();
+                if (arg.indexOf('=') >= 0)
                 {
-                    if (arg.indexOf('=') >= 0)
-                    {
-                        int i = arg.indexOf('=');
-                        properties.put(arg.substring(0, i), arg.substring(i + 1));
-                    }
-                    else if (arg.toLowerCase(Locale.ENGLISH).endsWith(".properties"))
-                        properties.load(Resource.newResource(arg).getInputStream());
+                    int i = arg.indexOf('=');
+                    properties.put(arg.substring(0, i), arg.substring(i + 1));
+                    // remove, now that we've seen/handled this arg.
+                    argIter.remove();
                 }
-
-                // For all arguments, parse XMLs
-                XmlConfiguration last = null;
-                List<Object> objects = new ArrayList<>(args.length);
-                for (String arg : args)
+                else if (arg.toLowerCase(Locale.ENGLISH).endsWith(".properties"))
                 {
-                    if (!arg.toLowerCase(Locale.ENGLISH).endsWith(".properties") && (arg.indexOf('=') < 0))
+                    try (InputStream inputStream = Resource.newResource(arg).getInputStream())
                     {
-                        XmlConfiguration configuration = new XmlConfiguration(Resource.newResource(arg));
-                        if (last != null)
-                            configuration.getIdMap().putAll(last.getIdMap());
-                        if (properties.size() > 0)
+                        properties.load(inputStream);
+                    }
+                    // remove, now that we've seen/handled this arg.
+                    argIter.remove();
+                }
+                // all other args are processed later.
+            }
+
+            // For all remaining arguments, parse XMLs
+            XmlConfiguration last = null;
+            List<Object> objects = new ArrayList<>(args.length);
+            for (String arg : remainingArgs)
+            {
+                if (arg.toLowerCase(Locale.ENGLISH).endsWith(".xml"))
+                {
+                    XmlConfiguration configuration = new XmlConfiguration(Resource.newResource(arg));
+                    if (last != null)
+                        configuration.getIdMap().putAll(last.getIdMap());
+                    if (properties.size() > 0)
+                    {
+                        Map<String, String> props = new HashMap<>();
+                        properties.forEach((key, value) -> props.put(key.toString(),
+                            String.valueOf(value)));
+                        configuration.getProperties().putAll(props);
+                    }
+
+                    Object obj = configuration.configure();
+                    if (obj != null && !objects.contains(obj))
+                        objects.add(obj);
+                    last = configuration;
+                }
+                else
+                {
+                    LOG.warn("Ignoring unrecognized arg [{}]", arg);
+                }
+            }
+
+            if (LOG.isDebugEnabled())
+                LOG.debug("objects={}", objects);
+
+            // For all objects created by XmlConfigurations, start them if they are lifecycles.
+            List<LifeCycle> started = new ArrayList<>(objects.size());
+            for (Object obj : objects)
+            {
+                if (obj instanceof LifeCycle)
+                {
+                    LifeCycle lc = (LifeCycle)obj;
+                    if (!lc.isRunning())
+                    {
+                        lc.start();
+                        if (lc.isStarted())
+                            started.add(lc);
+                        else
                         {
-                            Map<String, String> props = new HashMap<>();
-                            for (Object key : properties.keySet())
+                            // Failed to start a component, so stop all started components
+                            Collections.reverse(started);
+                            for (LifeCycle slc : started)
                             {
-                                props.put(key.toString(), String.valueOf(properties.get(key)));
+                                slc.stop();
                             }
-                            configuration.getProperties().putAll(props);
-                        }
-
-                        Object obj = configuration.configure();
-                        if (obj != null && !objects.contains(obj))
-                            objects.add(obj);
-                        last = configuration;
-                    }
-                }
-
-                if (LOG.isDebugEnabled())
-                    LOG.debug("objects={}", objects);
-
-                // For all objects created by XmlConfigurations, start them if they are lifecycles.
-                List<LifeCycle> started = new ArrayList<>(objects.size());
-                for (Object obj : objects)
-                {
-                    if (obj instanceof LifeCycle)
-                    {
-                        LifeCycle lc = (LifeCycle)obj;
-                        if (!lc.isRunning())
-                        {
-                            lc.start();
-                            if (lc.isStarted())
-                                started.add(lc);
-                            else
-                            {
-                                // Failed to start a component, so stop all started components
-                                Collections.reverse(started);
-                                for (LifeCycle slc : started)
-                                {
-                                    slc.stop();
-                                }
-                                break;
-                            }
+                            break;
                         }
                     }
                 }
-                return null;
-            });
+            }
         }
         catch (Error | Exception e)
         {
@@ -1842,7 +1957,7 @@ public class XmlConfiguration
         }
     }
 
-    private static class ConfigurationParser extends XmlParser implements AutoCloseable
+    private static class ConfigurationParser extends XmlParser implements Closeable
     {
         private final Pool<ConfigurationParser>.Entry _entry;
 
@@ -1851,32 +1966,49 @@ public class XmlConfiguration
             _entry = entry;
 
             Class<?> klass = XmlConfiguration.class;
+
             URL config60 = klass.getResource("configure_6_0.dtd");
             URL config76 = klass.getResource("configure_7_6.dtd");
             URL config90 = klass.getResource("configure_9_0.dtd");
             URL config93 = klass.getResource("configure_9_3.dtd");
             URL config100 = klass.getResource("configure_10_0.dtd");
 
-            redirectEntity("configure.dtd", config93);
-            redirectEntity("configure_1_0.dtd", config60);
-            redirectEntity("configure_1_1.dtd", config60);
-            redirectEntity("configure_1_2.dtd", config60);
-            redirectEntity("configure_1_3.dtd", config60);
-            redirectEntity("configure_6_0.dtd", config60);
-            redirectEntity("configure_7_6.dtd", config76);
-            redirectEntity("configure_9_0.dtd", config90);
-            redirectEntity("configure_9_3.dtd", config93);
-            redirectEntity("configure_10_0.dtd", config100);
+            Map<String, URL> dtdRefMap = new HashMap<>();
+            dtdRefMap.put("configure.dtd", config93);
+            dtdRefMap.put("configure_1_0.dtd", config60);
+            dtdRefMap.put("configure_1_1.dtd", config60);
+            dtdRefMap.put("configure_1_2.dtd", config60);
+            dtdRefMap.put("configure_1_3.dtd", config60);
+            dtdRefMap.put("configure_6_0.dtd", config60);
+            dtdRefMap.put("configure_7_6.dtd", config76);
+            dtdRefMap.put("configure_9_0.dtd", config90);
+            dtdRefMap.put("configure_9_3.dtd", config93);
+            dtdRefMap.put("configure_10_0.dtd", config100);
 
-            redirectEntity("http://jetty.mortbay.org/configure.dtd", config93);
-            redirectEntity("http://jetty.mortbay.org/configure_9_3.dtd", config93);
-            redirectEntity("http://jetty.eclipse.org/configure.dtd", config93);
-            redirectEntity("http://www.eclipse.org/jetty/configure.dtd", config93);
-            redirectEntity("https://www.eclipse.org/jetty/configure.dtd", config93);
-            redirectEntity("http://www.eclipse.org/jetty/configure_9_3.dtd", config93);
-            redirectEntity("https://www.eclipse.org/jetty/configure_9_3.dtd", config93);
-            redirectEntity("https://www.eclipse.org/jetty/configure_10_0.dtd", config100);
+            dtdRefMap.forEach(this::redirectEntity);
 
+            // Register all variations of DOCTYPE entity references for Configure
+            List<String> schemes = List.of("http", "https");
+            List<String> contexts = List.of(
+                "jetty.mortbay.org",
+                "jetty.eclipse.org",
+                "www.eclipse.org/jetty",
+                "eclipse.org/jetty",
+                "www.eclipse.dev/jetty",
+                "eclipse.dev/jetty",
+                "jetty.org");
+
+            for (String scheme : schemes)
+            {
+                for (String context : contexts)
+                {
+                    dtdRefMap.forEach((dtdName, dtdUrl) ->
+                    {
+                        String refUrl = String.format("%s://%s/%s", scheme, context, dtdName);
+                        redirectEntity(refUrl, dtdUrl);
+                    });
+                }
+            }
             redirectEntity("-//Mort Bay Consulting//DTD Configure//EN", config100);
             redirectEntity("-//Jetty//Configure//EN", config100);
         }

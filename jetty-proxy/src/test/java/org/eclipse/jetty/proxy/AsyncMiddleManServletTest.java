@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -18,6 +13,7 @@
 
 package org.eclipse.jetty.proxy;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,11 +36,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
 import javax.servlet.ServletOutputStream;
@@ -78,6 +78,7 @@ import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.Utf8StringBuilder;
 import org.eclipse.jetty.util.ajax.JSON;
+import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -157,16 +158,22 @@ public class AsyncMiddleManServletTest
         clientPool.setName("client");
         client = new HttpClient();
         client.setExecutor(clientPool);
-        client.getProxyConfiguration().getProxies().add(new HttpProxy("localhost", proxyConnector.getLocalPort()));
+        client.getProxyConfiguration().addProxy(new HttpProxy("localhost", proxyConnector.getLocalPort()));
         client.start();
     }
 
     @AfterEach
     public void dispose() throws Exception
     {
-        client.stop();
-        proxy.stop();
-        server.stop();
+        LifeCycle.stop(client);
+        LifeCycle.stop(proxy);
+        LifeCycle.stop(proxy);
+    }
+
+    @Test
+    public void testNewDestroy() throws Exception
+    {
+        new AsyncMiddleManServlet().destroy();
     }
 
     @Test
@@ -983,7 +990,7 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-            .timeout(5, TimeUnit.SECONDS)
+            .timeout(15, TimeUnit.SECONDS)
             .send();
 
         assertEquals(HttpStatus.OK_200, response.getStatus());
@@ -1295,7 +1302,7 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-            .timeout(5, TimeUnit.SECONDS)
+            .timeout(10, TimeUnit.SECONDS)
             .send();
 
         assertEquals(200, response.getStatus());
@@ -1547,6 +1554,82 @@ public class AsyncMiddleManServletTest
             .send();
         assertEquals(200, response.getStatus());
         assertTrue(response.getHeaders().contains(PROXIED_HEADER));
+    }
+
+    @Test
+    public void testDownstreamTransformationZipped() throws Exception
+    {
+        byte[] content1 = new byte[1024 * 1024];
+        ThreadLocalRandom.current().nextBytes(content1);
+        byte[] content2 = new byte[512 * 1024];
+        ThreadLocalRandom.current().nextBytes(content2);
+
+        startServer(new HttpServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
+            {
+                response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "deflate");
+                ZipOutputStream zipOut = new ZipOutputStream(response.getOutputStream());
+                zipOut.putNextEntry(new ZipEntry("server-file1.rnd"));
+                zipOut.write(content1);
+                zipOut.closeEntry();
+                zipOut.putNextEntry(new ZipEntry("server-file2.rnd"));
+                zipOut.write(content2);
+                zipOut.closeEntry();
+                zipOut.finish();
+            }
+        });
+        startProxy(new AsyncMiddleManServlet()
+        {
+            @Override
+            protected ContentTransformer newServerResponseContentTransformer(HttpServletRequest clientRequest, HttpServletResponse proxyResponse, Response serverResponse)
+            {
+                return new AfterContentTransformer()
+                {
+                    @Override
+                    public boolean transform(Source source, Sink sink) throws IOException
+                    {
+                        // Un-zip and re-zip.
+
+                        ZipInputStream zipIn = new ZipInputStream(source.getInputStream());
+                        ZipOutputStream zipOut = new ZipOutputStream(sink.getOutputStream());
+
+                        ZipEntry zipEntry;
+                        while ((zipEntry = zipIn.getNextEntry()) != null)
+                        {
+                            zipOut.putNextEntry(zipEntry);
+                            IO.copy(zipIn, zipOut);
+                            zipOut.closeEntry();
+                        }
+
+                        zipOut.finish();
+
+                        return true;
+                    }
+                };
+            }
+        });
+        startClient();
+
+        ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
+
+        assertEquals(200, response.getStatus());
+
+        ZipInputStream zipIn = new ZipInputStream(new ByteArrayInputStream(response.getContent()));
+        ZipEntry zipEntry1 = zipIn.getNextEntry();
+        assertNotNull(zipEntry1);
+        ByteArrayOutputStream out1 = new ByteArrayOutputStream();
+        IO.copy(zipIn, out1);
+        assertArrayEquals(content1, out1.toByteArray());
+        ZipEntry zipEntry2 = zipIn.getNextEntry();
+        assertNotNull(zipEntry2);
+        ByteArrayOutputStream out2 = new ByteArrayOutputStream();
+        IO.copy(zipIn, out2);
+        assertArrayEquals(content2, out2.toByteArray());
+        assertNull(zipIn.getNextEntry());
     }
 
     private void sleep(long delay)

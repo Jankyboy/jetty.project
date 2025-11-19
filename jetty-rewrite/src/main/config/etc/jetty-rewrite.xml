@@ -1,4 +1,4 @@
-<?xml version="1.0"?><!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://www.eclipse.org/jetty/configure_10_0.dtd">
+<?xml version="1.0"?><!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://jetty.org/configure_10_0.dtd">
 
 <Configure id="Server" class="org.eclipse.jetty.server.Server">
 
@@ -10,7 +10,7 @@
       <New class="org.eclipse.jetty.rewrite.handler.RewriteHandler">
         <Set name="rewriteRequestURI" property="jetty.rewrite.rewriteRequestURI" />
         <Set name="rewritePathInfo" property="jetty.rewrite.rewritePathInfo" />
-        <Set name="originalPathAttribute" property="jetty.rewrite.originalPathAttribute" />
+        <Set name="originalPathAttribute"><Property name="jetty.rewrite.originalPathAttribute" default="requestedPath"/></Set>
 
         <!-- Set DispatcherTypes  -->
         <Set name="dispatcherTypes">

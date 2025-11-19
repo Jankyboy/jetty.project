@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -141,21 +136,17 @@ public class NcsaRequestLogTest
         setup(logType);
         testHandlerServerStart();
 
-        String log;
-
-        /*
         _connector.getResponse("GET /foo?data=1 HTTP/1.0\nhost: host:80\n\n");
-        log = _entries.poll(5, TimeUnit.SECONDS);
+        String log = _entries.poll(5, TimeUnit.SECONDS);
         assertThat(log, containsString("GET /foo?data=1 HTTP/1.0\" 200 "));
-*/
+
         _connector.getResponse("GET //bad/foo?data=1 HTTP/1.0\n\n");
         log = _entries.poll(5, TimeUnit.SECONDS);
-        assertThat(log, containsString("GET //bad/foo?data=1 HTTP/1.0\" 200 "));
-/*
+        assertThat(log, containsString("GET //bad/foo?data=1 HTTP/1.0\" 400 "));
+
         _connector.getResponse("GET http://host:80/foo?data=1 HTTP/1.0\n\n");
         log = _entries.poll(5, TimeUnit.SECONDS);
         assertThat(log, containsString("GET http://host:80/foo?data=1 HTTP/1.0\" 200 "));
-  */
     }
 
     @ParameterizedTest()
@@ -199,7 +190,7 @@ public class NcsaRequestLogTest
 
         _connector.getResponse(
             "GET http://hostname:8888/foo?name=value HTTP/1.1\n" +
-                "Host: servername\n" +
+                "Host: hostname:8888\n" +
                 "\n");
         String log = _entries.poll(5, TimeUnit.SECONDS);
         assertThat(log, containsString("GET http://hostname:8888/foo?name=value"));
@@ -362,9 +353,9 @@ public class NcsaRequestLogTest
         setup(logType);
         testHandlerServerStart();
 
-        _connector.getResponse("GET http://[:1]/foo HTTP/1.1\nReferer: http://other.site\n\n");
+        _connector.getResponse("GET http://[::1]/foo HTTP/1.1\nReferer: http://other.site\n\n");
         String log = _entries.poll(5, TimeUnit.SECONDS);
-        assertThat(log, containsString("GET http://[:1]/foo "));
+        assertThat(log, containsString("GET http://[::1]/foo "));
         assertThat(log, containsString(" 400 50 \"http://other.site\" \"-\""));
     }
 
@@ -375,9 +366,9 @@ public class NcsaRequestLogTest
         setup(logType);
         testHandlerServerStart();
 
-        _connector.getResponse("GET http://[:1]/foo HTTP/1.1\nReferer: http://other.site\nUser-Agent: Mozilla/5.0 (test)\n\n");
+        _connector.getResponse("GET http://[::1]/foo HTTP/1.1\nReferer: http://other.site\nUser-Agent: Mozilla/5.0 (test)\n\n");
         String log = _entries.poll(5, TimeUnit.SECONDS);
-        assertThat(log, containsString("GET http://[:1]/foo "));
+        assertThat(log, containsString("GET http://[::1]/foo "));
         assertThat(log, containsString(" 400 50 \"http://other.site\" \"Mozilla/5.0 (test)\""));
     }
 

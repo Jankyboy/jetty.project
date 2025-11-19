@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -20,12 +15,17 @@ package org.eclipse.jetty.gcloud.session;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.cloud.NoCredentials;
+import com.google.cloud.ServiceOptions;
+import com.google.cloud.datastore.Batch;
 import com.google.cloud.datastore.Blob;
 import com.google.cloud.datastore.BlobValue;
 import com.google.cloud.datastore.Datastore;
@@ -38,13 +38,16 @@ import com.google.cloud.datastore.Query;
 import com.google.cloud.datastore.Query.ResultType;
 import com.google.cloud.datastore.QueryResults;
 import com.google.cloud.datastore.StructuredQuery.PropertyFilter;
-import com.google.cloud.datastore.testing.LocalDatastoreHelper;
 import org.eclipse.jetty.gcloud.session.GCloudSessionDataStore.EntityDataModel;
 import org.eclipse.jetty.server.session.SessionData;
 import org.eclipse.jetty.server.session.SessionDataStore;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.util.ClassLoadingObjectInputStream;
-import org.threeten.bp.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.DatastoreEmulatorContainer;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -55,9 +58,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class GCloudSessionTestSupport
 {
-    LocalDatastoreHelper _helper = LocalDatastoreHelper.create(1.0);
     Datastore _ds;
     KeyFactory _keyFactory;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GCloudSessionTestSupport.class);
+    private static final Logger GCLOUD_LOG = LoggerFactory.getLogger("org.eclipse.jetty.gcloud.session.gcloudLogs");
+
+    public DatastoreEmulatorContainer emulator = new DatastoreEmulatorContainer(
+        DockerImageName.parse("gcr.io/google.com/cloudsdktool/cloud-sdk:316.0.0-emulators")
+    ).withLogConsumer(new Slf4jLogConsumer(GCLOUD_LOG))
+            .withFlags("--consistency=1.0");
 
     public static class TestGCloudSessionDataStoreFactory extends GCloudSessionDataStoreFactory
     {
@@ -85,15 +95,35 @@ public class GCloudSessionTestSupport
 
     public GCloudSessionTestSupport()
     {
-        DatastoreOptions options = _helper.getOptions();
-        _ds = options.getService();
-        _keyFactory = _ds.newKeyFactory().setKind(EntityDataModel.KIND);
+        // no op
     }
 
     public void setUp()
         throws Exception
     {
-        _helper.start();
+        emulator.start();
+        String host;
+        //work out if we're running locally or not: if not local, then the host passed to
+        //DatastoreOptions must be prefixed with a scheme
+        String endPoint = emulator.getEmulatorEndpoint();
+        InetAddress hostAddr = InetAddress.getByName(new URL("http://" + endPoint).getHost());
+        LOGGER.info("endPoint: {} ,hostAddr.isAnyLocalAddress(): {},hostAddr.isLoopbackAddress(): {}",
+                    endPoint,
+                    hostAddr.isAnyLocalAddress(),
+                    hostAddr.isLoopbackAddress());
+        if (hostAddr.isAnyLocalAddress() || hostAddr.isLoopbackAddress())
+            host = endPoint;
+        else
+            host = "http://" + endPoint;
+        
+        DatastoreOptions options = DatastoreOptions.newBuilder()
+            .setHost(host)
+            .setCredentials(NoCredentials.getInstance())
+            .setRetrySettings(ServiceOptions.getNoRetrySettings())
+            .setProjectId("test-project")
+            .build();
+        _ds = options.getService();
+        _keyFactory = _ds.newKeyFactory().setKind(EntityDataModel.KIND);
     }
 
     public Datastore getDatastore()
@@ -104,12 +134,13 @@ public class GCloudSessionTestSupport
     public void tearDown()
         throws Exception
     {
-        _helper.stop(Duration.ofMinutes(1)); //wait up to 1min for shutdown
+        emulator.stop();
     }
 
     public void reset() throws Exception
     {
-        _helper.reset();
+        emulator.stop();
+        this.setUp();
     }
 
     public void createSession(String id, String contextPath, String vhost,
@@ -257,12 +288,14 @@ public class GCloudSessionTestSupport
         QueryResults<Key> results = _ds.run(query);
         assertNotNull(results);
         int actual = 0;
+        List<Key> keys = new ArrayList<>();
         while (results.hasNext())
         {
-            results.next();
+            Key key = results.next();
+            keys.add(key);
             ++actual;
         }
-        assertEquals(count, actual);
+        assertEquals(count, actual, "keys found: " + keys);
     }
 
     public void deleteSessions() throws Exception
@@ -270,18 +303,21 @@ public class GCloudSessionTestSupport
         Query<Key> query = Query.newKeyQueryBuilder().setKind(GCloudSessionDataStore.EntityDataModel.KIND).build();
         QueryResults<Key> results = _ds.run(query);
 
+        Batch batch = _ds.newBatch();
+
         if (results != null)
         {
-            List<Key> keys = new ArrayList<Key>();
+            List<Key> keys = new ArrayList<>();
 
             while (results.hasNext())
             {
                 keys.add(results.next());
             }
 
-            _ds.delete(keys.toArray(new Key[keys.size()]));
+            batch.delete(keys.toArray(new Key[keys.size()]));
         }
 
+        batch.submit();
         assertSessions(0);
     }
 }

@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -22,6 +17,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritePendingException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -51,10 +47,7 @@ import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.http2.hpack.HpackException;
-import org.eclipse.jetty.http2.parser.RateControl;
-import org.eclipse.jetty.http2.parser.ServerParser;
 import org.eclipse.jetty.http2.server.RawHTTP2ServerConnectionFactory;
-import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
@@ -62,11 +55,16 @@ import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.Jetty;
 import org.eclipse.jetty.util.Promise;
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.component.Graceful;
 import org.junit.jupiter.api.Test;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -511,7 +509,8 @@ public class HTTP2Test extends AbstractTest
             }
         });
         assertTrue(exchangeLatch4.await(5, TimeUnit.SECONDS));
-        assertEquals(1, session.getStreams().size());
+        // The stream is removed from the session just after returning from onHeaders(), so wait a little bit.
+        await().atMost(Duration.ofSeconds(1)).until(() -> session.getStreams().size(), is(1));
 
         // End the first stream.
         stream1.data(new DataFrame(stream1.getId(), BufferUtil.EMPTY_BUFFER, true), new Callback()
@@ -738,6 +737,7 @@ public class HTTP2Test extends AbstractTest
     @Test
     public void testGoAwayRespondedWithGoAway() throws Exception
     {
+        CountDownLatch goAwayLatch = new CountDownLatch(1);
         ServerSessionListener.Adapter serverListener = new ServerSessionListener.Adapter()
         {
             @Override
@@ -749,24 +749,14 @@ public class HTTP2Test extends AbstractTest
                 stream.getSession().close(ErrorCode.NO_ERROR.code, null, Callback.NOOP);
                 return null;
             }
-        };
-        CountDownLatch goAwayLatch = new CountDownLatch(1);
-        RawHTTP2ServerConnectionFactory connectionFactory = new RawHTTP2ServerConnectionFactory(new HttpConfiguration(), serverListener)
-        {
+
             @Override
-            protected ServerParser newServerParser(Connector connector, ServerParser.Listener listener, RateControl rateControl)
+            public void onGoAway(Session session, GoAwayFrame frame)
             {
-                return super.newServerParser(connector, new ServerParser.Listener.Wrapper(listener)
-                {
-                    @Override
-                    public void onGoAway(GoAwayFrame frame)
-                    {
-                        super.onGoAway(frame);
-                        goAwayLatch.countDown();
-                    }
-                }, rateControl);
+                goAwayLatch.countDown();
             }
         };
+        RawHTTP2ServerConnectionFactory connectionFactory = new RawHTTP2ServerConnectionFactory(new HttpConfiguration(), serverListener);
         prepareServer(connectionFactory);
         server.start();
 
@@ -930,9 +920,20 @@ public class HTTP2Test extends AbstractTest
         // Avoid aggressive idle timeout to allow the test verifications.
         connector.setShutdownIdleTimeout(connector.getIdleTimeout());
 
+        CountDownLatch clientGracefulGoAwayLatch = new CountDownLatch(1);
+        CountDownLatch clientGoAwayLatch = new CountDownLatch(1);
         CountDownLatch clientCloseLatch = new CountDownLatch(1);
         Session clientSession = newClient(new Session.Listener.Adapter()
         {
+            @Override
+            public void onGoAway(Session session, GoAwayFrame frame)
+            {
+                if (frame.isGraceful())
+                    clientGracefulGoAwayLatch.countDown();
+                else
+                    clientGoAwayLatch.countDown();
+            }
+
             @Override
             public void onClose(Session session, GoAwayFrame frame)
             {
@@ -977,26 +978,20 @@ public class HTTP2Test extends AbstractTest
         int port = connector.getLocalPort();
         CompletableFuture<Void> shutdown = Graceful.shutdown(server);
 
-        // GOAWAY should not arrive to the client yet.
-        assertFalse(clientCloseLatch.await(1, TimeUnit.SECONDS));
+        // Client should receive the graceful GOAWAY.
+        assertTrue(clientGracefulGoAwayLatch.await(5, TimeUnit.SECONDS));
+        // Client should not receive the non-graceful GOAWAY.
+        assertFalse(clientGoAwayLatch.await(500, TimeUnit.MILLISECONDS));
+        // Client should not be closed yet.
+        assertFalse(clientCloseLatch.await(500, TimeUnit.MILLISECONDS));
 
-        // New requests should be immediately rejected.
+        // Client cannot create new requests after receiving a GOAWAY.
         HostPortHttpField authority3 = new HostPortHttpField("localhost" + ":" + port);
         MetaData.Request metaData3 = new MetaData.Request("GET", HttpScheme.HTTP.asString(), authority3, servletPath, HttpVersion.HTTP_2, HttpFields.EMPTY, -1);
-        HeadersFrame request3 = new HeadersFrame(metaData3, null, false);
+        HeadersFrame request3 = new HeadersFrame(metaData3, null, true);
         FuturePromise<Stream> promise3 = new FuturePromise<>();
-        CountDownLatch resetLatch = new CountDownLatch(1);
-        clientSession.newStream(request3, promise3, new Stream.Listener.Adapter()
-        {
-            @Override
-            public void onReset(Stream stream, ResetFrame frame)
-            {
-                resetLatch.countDown();
-            }
-        });
-        Stream stream3 = promise3.get(5, TimeUnit.SECONDS);
-        stream3.data(new DataFrame(stream3.getId(), ByteBuffer.allocate(1), true), Callback.NOOP);
-        assertTrue(resetLatch.await(5, TimeUnit.SECONDS));
+        clientSession.newStream(request3, promise3, new Stream.Listener.Adapter());
+        assertThrows(ExecutionException.class, () -> promise3.get(5, TimeUnit.SECONDS));
 
         // Finish the previous requests and expect the responses.
         stream1.data(new DataFrame(stream1.getId(), BufferUtil.EMPTY_BUFFER, true), Callback.NOOP);
@@ -1005,11 +1000,154 @@ public class HTTP2Test extends AbstractTest
         assertNull(shutdown.get(5, TimeUnit.SECONDS));
 
         // Now GOAWAY should arrive to the client.
+        assertTrue(clientGoAwayLatch.await(5, TimeUnit.SECONDS));
         assertTrue(clientCloseLatch.await(5, TimeUnit.SECONDS));
-        // Wait to process the GOAWAY frames and close the EndPoints.
-        Thread.sleep(1000);
+
         assertFalse(((HTTP2Session)clientSession).getEndPoint().isOpen());
         assertFalse(((HTTP2Session)serverSession).getEndPoint().isOpen());
+    }
+
+    @Test
+    public void testClientSendsLargeHeader() throws Exception
+    {
+        CountDownLatch settingsLatch = new CountDownLatch(2);
+
+        CompletableFuture<Throwable> serverFailureFuture = new CompletableFuture<>();
+        CompletableFuture<String> serverCloseReasonFuture = new CompletableFuture<>();
+        start(new ServerSessionListener.Adapter()
+        {
+            @Override
+            public void onSettings(Session session, SettingsFrame frame)
+            {
+                settingsLatch.countDown();
+            }
+
+            @Override
+            public void onFailure(Session session, Throwable failure)
+            {
+                serverFailureFuture.complete(failure);
+            }
+
+            @Override
+            public void onClose(Session session, GoAwayFrame frame)
+            {
+                serverCloseReasonFuture.complete(frame.tryConvertPayload());
+            }
+        });
+
+        CompletableFuture<Throwable> clientFailureFuture = new CompletableFuture<>();
+        CompletableFuture<String> clientCloseReasonFuture = new CompletableFuture<>();
+        Session.Listener.Adapter listener = new Session.Listener.Adapter()
+        {
+            @Override
+            public void onSettings(Session session, SettingsFrame frame)
+            {
+                settingsLatch.countDown();
+            }
+
+            @Override
+            public void onFailure(Session session, Throwable failure)
+            {
+                clientFailureFuture.complete(failure);
+            }
+
+            @Override
+            public void onClose(Session session, GoAwayFrame frame)
+            {
+                clientCloseReasonFuture.complete(frame.tryConvertPayload());
+            }
+        };
+
+        HTTP2Session session = (HTTP2Session)newClient(listener);
+        assertTrue(settingsLatch.await(5, TimeUnit.SECONDS));
+        session.getGenerator().getHpackEncoder().setMaxHeaderListSize(1024 * 1024);
+
+        String value = StringUtil.stringFrom("x", 8 * 1024);
+        HttpFields requestFields = HttpFields.build()
+            .put("custom", value);
+        MetaData.Request metaData = newRequest("GET", requestFields);
+        HeadersFrame request = new HeadersFrame(metaData, null, true);
+        session.newStream(request, new FuturePromise<>(), new Stream.Listener.Adapter());
+
+        // Test failure and close reason on client.
+        String closeReason = clientCloseReasonFuture.get(5, TimeUnit.SECONDS);
+        assertThat(closeReason, equalTo("invalid_hpack_block"));
+        assertNull(clientFailureFuture.getNow(null));
+
+        // Test failure and close reason on server.
+        closeReason = serverCloseReasonFuture.get(5, TimeUnit.SECONDS);
+        assertThat(closeReason, equalTo("invalid_hpack_block"));
+        Throwable failure = serverFailureFuture.get(5, TimeUnit.SECONDS);
+        assertThat(failure, instanceOf(IOException.class));
+        assertThat(failure.getMessage(), containsString("invalid_hpack_block"));
+    }
+
+    @Test
+    public void testServerSendsLargeHeader() throws Exception
+    {
+        CompletableFuture<Throwable> serverFailureFuture = new CompletableFuture<>();
+        CompletableFuture<String> serverCloseReasonFuture = new CompletableFuture<>();
+        start(new ServerSessionListener.Adapter()
+        {
+            @Override
+            public Stream.Listener onNewStream(Stream stream, HeadersFrame frame)
+            {
+                HTTP2Session session = (HTTP2Session)stream.getSession();
+                session.getGenerator().getHpackEncoder().setMaxHeaderListSize(1024 * 1024);
+
+                String value = StringUtil.stringFrom("x", 8 * 1024);
+                HttpFields fields = HttpFields.build().put("custom", value);
+                MetaData.Response response = new MetaData.Response(HttpVersion.HTTP_2, HttpStatus.OK_200, fields);
+                stream.headers(new HeadersFrame(stream.getId(), response, null, true));
+                return null;
+            }
+
+            @Override
+            public void onFailure(Session session, Throwable failure)
+            {
+                serverFailureFuture.complete(failure);
+            }
+
+            @Override
+            public void onClose(Session session, GoAwayFrame frame)
+            {
+                serverCloseReasonFuture.complete(frame.tryConvertPayload());
+            }
+        });
+
+        CompletableFuture<Throwable> clientFailureFuture = new CompletableFuture<>();
+        CompletableFuture<String> clientCloseReasonFuture = new CompletableFuture<>();
+        Session.Listener.Adapter listener = new Session.Listener.Adapter()
+        {
+            @Override
+            public void onFailure(Session session, Throwable failure)
+            {
+                clientFailureFuture.complete(failure);
+            }
+
+            @Override
+            public void onClose(Session session, GoAwayFrame frame)
+            {
+                clientCloseReasonFuture.complete(frame.tryConvertPayload());
+            }
+        };
+
+        Session session = newClient(listener);
+        MetaData.Request metaData = newRequest("GET", HttpFields.EMPTY);
+        HeadersFrame request = new HeadersFrame(metaData, null, true);
+        session.newStream(request, new FuturePromise<>(), new Stream.Listener.Adapter());
+
+        // Test failure and close reason on server.
+        String closeReason = serverCloseReasonFuture.get(5, TimeUnit.SECONDS);
+        assertThat(closeReason, equalTo("invalid_hpack_block"));
+        assertNull(serverFailureFuture.getNow(null));
+
+        // Test failure and close reason on client.
+        closeReason = clientCloseReasonFuture.get(5, TimeUnit.SECONDS);
+        assertThat(closeReason, equalTo("invalid_hpack_block"));
+        Throwable failure = clientFailureFuture.get(5, TimeUnit.SECONDS);
+        assertThat(failure, instanceOf(IOException.class));
+        assertThat(failure.getMessage(), containsString("invalid_hpack_block"));
     }
 
     private static void sleep(long time)

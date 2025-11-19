@@ -1,51 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.eclipse.jetty.osgi</groupId>
     <artifactId>jetty-osgi-project</artifactId>
-    <version>10.0.0-SNAPSHOT</version>
+    <version>10.0.27-SNAPSHOT</version>
   </parent>
-  <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-osgi-boot-jsp</artifactId>
   <name>Jetty :: OSGi :: Boot JSP</name>
   <description>Jetty OSGi Boot JSP bundle</description>
-  <url>http://www.eclipse.org/jetty</url>
   <properties>
     <bundle-symbolic-name>${project.groupId}.boot.jsp</bundle-symbolic-name>
+    <spotbugs.onlyAnalyze>org.eclipse.jetty.osgi.boot.jasper.*,org.eclipse.jetty.osgi.boot.jsp.*</spotbugs.onlyAnalyze>
   </properties>
   <dependencies>
+    <!-- JSP Deps -->
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>apache-jsp</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-deploy</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.osgi</groupId>
-      <artifactId>jetty-osgi-boot</artifactId>
-      <version>${project.version}</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.osgi</groupId>
-      <artifactId>org.eclipse.osgi</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.osgi</groupId>
-      <artifactId>org.eclipse.osgi.services</artifactId>
     </dependency>
     <!-- Servlet Deps -->
     <dependency>
       <groupId>org.eclipse.jetty.toolchain</groupId>
       <artifactId>jetty-servlet-api</artifactId>
     </dependency>
-    <!-- JSP Deps -->
     <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>apache-jsp</artifactId>
-      <version>${project.version}</version>
+      <groupId>org.eclipse.platform</groupId>
+      <artifactId>org.eclipse.osgi</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.platform</groupId>
+      <artifactId>org.eclipse.osgi.services</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.osgi</groupId>
+      <artifactId>jetty-osgi-boot</artifactId>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
 
   <build>
     <plugins>
+
       <plugin>
         <groupId>org.apache.felix</groupId>
         <artifactId>maven-bundle-plugin</artifactId>
@@ -53,18 +53,19 @@
         <configuration>
           <instructions>
             <Bundle-Name>Jetty-OSGi-Jasper Integration</Bundle-Name>
-            <Bundle-Classpath />
+            <Bundle-Classpath></Bundle-Classpath>
             <Fragment-Host>org.eclipse.jetty.osgi.boot</Fragment-Host>
             <Export-Package>!org.eclipse.jetty.osgi.boot.*</Export-Package>
-            <Import-Package>org.eclipse.jdt.*;resolution:=optional,
+            <Import-Package>${osgi.slf4j.import.packages},
+                org.eclipse.jdt.*;resolution:=optional,
                 org.eclipse.jdt.core.compiler.*;resolution:=optional,
                 com.sun.el;resolution:=optional,
                 com.sun.el.lang;resolution:=optional,
                 com.sun.el.parser;resolution:=optional,
                 com.sun.el.util;resolution:=optional,
                 javax.el;version="[3.0,3.1)",
-                javax.servlet;version="[$(version;==;${servlet.api.version}),$(version;+;${servlet.api.version}))",
-                javax.servlet.resources;version="[$(version;==;${servlet.api.version}),$(version;+;${servlet.api.version}))",
+                javax.servlet;version="[$(version;==;${jetty.servlet.api.version}),$(version;+;${jetty.servlet.api.version}))",
+                javax.servlet.resources;version="[$(version;==;${jetty.servlet.api.version}),$(version;+;${jetty.servlet.api.version}))",
                 javax.servlet.jsp.resources;version="[2.3,4.1)",
                 javax.servlet.jsp;version="[2.3,2.4.1)",
                 javax.servlet.jsp.el;version="[2.3,2.4.1)",
@@ -73,20 +74,20 @@
                 javax.servlet.jsp.jstl.fmt;version="1.2";resolution:=optional,
                 javax.servlet.jsp.jstl.sql;version="1.2";resolution:=optional,
                 javax.servlet.jsp.jstl.tlv;version="1.2";resolution:=optional,
-                org.apache.el;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.el.lang;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.el.stream;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.el.util;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.el.parser;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.compiler;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.compiler.tagplugin;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.runtime;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.security;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.servlet;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.tagplugins.jstl;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.util;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
-                org.apache.jasper.xmlparser;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
+                org.apache.el;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.el.lang;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.el.stream;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.el.util;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.el.parser;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.compiler;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.compiler.tagplugin;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.runtime;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.security;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.servlet;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.tagplugins.jstl;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.util;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
+                org.apache.jasper.xmlparser;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
                 org.apache.taglibs.standard;version="1.2";resolution:=optional,
                 org.apache.taglibs.standard.extra.spath;version="1.2";resolution:=optional,
                 org.apache.taglibs.standard.functions;version="1.2";resolution:=optional,
@@ -110,7 +111,7 @@
                 org.apache.taglibs.standard.tag.rt.xml;version="1.2";resolution:=optional,
                 org.apache.taglibs.standard.tei;version="1.2";resolution:=optional,
                 org.apache.taglibs.standard.tlv;version="1.2";resolution:=optional,
-                org.apache.tomcat;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))";resolution:=optional,
+                org.apache.tomcat;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))";resolution:=optional,
                 org.eclipse.jetty.jsp;version="[$(version;===;${parsedVersion.osgiVersion}),$(version;==+;${parsedVersion.osgiVersion}))";resolution:=optional,
                 org.osgi.*,
                 org.xml.*;resolution:=optional,
@@ -118,20 +119,30 @@
                 javax.xml.*;resolution:=optional,
                 org.w3c.dom;resolution:=optional,
                 org.w3c.dom.ls;resolution:=optional,
-                javax.xml.parser;resolution:=optional
-            </Import-Package>
+                javax.xml.parser;resolution:=optional</Import-Package>
             <DynamicImport-Package>org.eclipse.jetty.jsp.*;version="[$(version;===;${parsedVersion.osgiVersion}),$(version;==+;${parsedVersion.osgiVersion}))",
-                org.apache.jasper.*;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))",
-                org.apache.el.*;version="[$(version;===;${jsp.version}),$(version;+;${jsp.version}))"</DynamicImport-Package>
+              org.apache.jasper.*;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))",
+              org.apache.el.*;version="[$(version;===;${jspImpl.osgiVersion}),$(version;+;${jspImpl.osgiVersion}))"</DynamicImport-Package>
           </instructions>
         </configuration>
       </plugin>
+      <!-- necessary because x.y.x-SNAPSHOT is not a valid osgi version -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <configuration>
-          <onlyAnalyze>org.eclipse.jetty.osgi.boot.jasper.*,org.eclipse.jetty.osgi.boot.jsp.*</onlyAnalyze>
-        </configuration>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>set-jsp-api-version</id>
+            <goals>
+              <goal>parse-version</goal>
+            </goals>
+            <phase>validate</phase>
+            <configuration>
+              <versionString>${jsp.impl.version}</versionString>
+              <propertyPrefix>jspImpl</propertyPrefix>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

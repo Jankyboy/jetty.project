@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -87,7 +82,7 @@ public class ResourceAnnotationHandler extends AbstractIntrospectableAnnotationH
             String name = resource.name();
             String mappedName = resource.mappedName();
 
-            if (name == null || name.trim().equals(""))
+            if (name == null || name.trim().isEmpty())
                 throw new IllegalStateException("Class level Resource annotations must contain a name (Common Annotations Spec Section 2.3)");
 
             try
@@ -126,8 +121,8 @@ public class ResourceAnnotationHandler extends AbstractIntrospectableAnnotationH
             String name = clazz.getName() + "/" + field.getName();
 
             //allow @Resource name= to override the field name
-            name = (resource.name() != null && !resource.name().trim().equals("") ? resource.name() : name);
-            String mappedName = (resource.mappedName() != null && !resource.mappedName().trim().equals("") ? resource.mappedName() : null);
+            name = (resource.name() != null && !resource.name().trim().isEmpty() ? resource.name() : name);
+            String mappedName = (resource.mappedName() != null && !resource.mappedName().trim().isEmpty() ? resource.mappedName() : null);
             //get the type of the Field
             Class<?> type = field.getType();
 
@@ -272,8 +267,8 @@ public class ResourceAnnotationHandler extends AbstractIntrospectableAnnotationH
             name = name.substring(0, 1).toLowerCase(Locale.ENGLISH) + name.substring(1);
             name = clazz.getName() + "/" + name;
 
-            name = (resource.name() != null && !resource.name().trim().equals("") ? resource.name() : name);
-            String mappedName = (resource.mappedName() != null && !resource.mappedName().trim().equals("") ? resource.mappedName() : null);
+            name = (resource.name() != null && !resource.name().trim().isEmpty() ? resource.name() : name);
+            String mappedName = (resource.mappedName() != null && !resource.mappedName().trim().isEmpty() ? resource.mappedName() : null);
             Class<?> paramType = method.getParameterTypes()[0];
 
             Class<?> resourceType = resource.type();

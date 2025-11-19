@@ -1,16 +1,11 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2020 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
-// This program and the accompanying materials are made available under
-// the terms of the Eclipse Public License 2.0 which is available at
-// https://www.eclipse.org/legal/epl-2.0
-//
-// This Source Code may also be made available under the following
-// Secondary Licenses when the conditions for such availability set
-// forth in the Eclipse Public License, v. 2.0 are satisfied:
-// the Apache License v2.0 which is available at
-// https://www.apache.org/licenses/LICENSE-2.0
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// https://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
 //
 // SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
 // ========================================================================
@@ -31,7 +26,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Arrays;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
@@ -41,7 +36,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @ExtendWith(WorkDirExtension.class)
 public class RolloverFileOutputStreamTest
@@ -83,7 +81,7 @@ public class RolloverFileOutputStreamTest
     }
 
     /**
-     * <a href="Issue #1507">https://github.com/eclipse/jetty.project/issues/1507</a>
+     * <a href="Issue #1507">https://github.com/jetty/jetty.project/issues/1507</a>
      */
     @Test
     public void testMidnightRolloverCalcPDTIssue1507()
@@ -185,6 +183,26 @@ public class RolloverFileOutputStreamTest
 
         assertSequence(midnight, expected);
     }
+
+    @Test
+    public void testMissingDirectory()
+    {
+
+        String templateString = "missingDir/test-rofos-yyyy_mm_dd.log";
+        Throwable error;
+        try (RolloverFileOutputStream rofos = new RolloverFileOutputStream(templateString))
+        {
+            throw new IllegalStateException();
+        }
+        catch (Throwable  t)
+        {
+            error = t;
+        }
+        assertNotNull(error);
+        assertThat(error, instanceOf(IOException.class));
+        error.getMessage();
+        assertThat(error.getMessage(), containsString("Log directory does not exist."));
+    }        
 
     @Test
     public void testFileHandling() throws Exception
@@ -379,6 +397,9 @@ public class RolloverFileOutputStreamTest
 
     private String[] ls(Path path) throws IOException
     {
-        return Files.list(path).map(p -> p.getFileName().toString()).collect(Collectors.toList()).toArray(new String[0]);
+        try (Stream<Path> s = Files.list(path))
+        {
+            return s.map(p -> p.getFileName().toString()).toArray(String[]::new);
+        }
     }
 }
